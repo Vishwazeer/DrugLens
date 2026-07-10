@@ -1,167 +1,203 @@
-# 💊 DrugLens — AI-Powered Polypharmacy Risk Analyzer
+# 💊 DrugLens — AI-Powered Geriatric Polypharmacy Risk Analyzer
 
-> Paste a patient's medication list → get instant drug interaction analysis, Beers Criteria alerts, STOPP/START recommendations, and AI-generated deprescribing suggestions.
-
-**Built for AMD Developer Hackathon: ACT II — Track 3 (Unicorn Track)**
-
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.45-red)
-![AMD](https://img.shields.io/badge/AMD-Developer%20Cloud-ed1c24)
-![Gemma](https://img.shields.io/badge/Google-Gemma-4285F4)
-![License](https://img.shields.io/badge/License-MIT-green)
+> **AMD Developer Hackathon: ACT II — Track 3 (Unicorn Track)**  
+> An advanced clinical decision support tool designed to identify medication risks, drug-drug interactions, Beers Criteria violations, and STOPP/START mismatches in elderly patients using a multi-model Gemma pipeline.
 
 ---
 
-## 🎯 Problem
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Streamlit-1.45-FF4B4B?style=for-the-badge&logo=streamlit" alt="Streamlit">
+  <img src="https://img.shields.io/badge/AMD-Instinct%20GPUs-ED1C24?style=for-the-badge&logo=amd" alt="AMD">
+  <img src="https://img.shields.io/badge/Google-Gemma%20Suite-4285F4?style=for-the-badge&logo=google" alt="Gemma">
+  <img src="https://img.shields.io/badge/ROCm-Compatible-0052CC?style=for-the-badge" alt="ROCm">
+</p>
 
-**40% of seniors take 5+ medications.** Adverse drug events in the elderly cost **$3.5 billion/year** in the US alone. Most are preventable — but checking every drug interaction, age-appropriateness criterion, and deprescribing opportunity manually is time-consuming and error-prone.
+---
 
-## 💡 Solution
+## 🎯 The Geriatric Polypharmacy Crisis
 
-**DrugLens** is an AI-powered clinical decision support tool that instantly analyzes a patient's medication regimen and surfaces:
+Older adults (aged 65+) represent 16% of the US population but consume over **30% of all prescription medications**. 
+* **Polypharmacy** (taking 5+ medications daily) affects over **40% of seniors**.
+* Adverse Drug Events (ADEs) in the elderly lead to **3.5 million physician office visits** and **125,000 hospitalizations** annually.
+* Most of these events are preventable, resulting from known drug-drug interactions or age-inappropriate prescribing.
 
-- ⚠️ **Drug-Drug Interactions** — from a curated database of 100+ clinically significant pairs
-- 📜 **Beers Criteria Alerts** — AGS 2023 potentially inappropriate medications for elderly
-- 🔄 **STOPP/START Recommendations** — European deprescribing/prescribing criteria (v3, 2023)
-- 🧬 **AI-Predicted Interactions** — TxGemma predicts novel DDIs from molecular structure
-- 📄 **AI Risk Reports** — Gemma 4 generates clinical summaries and patient-friendly explanations
+**DrugLens** provides clinicians with an instant, structured audit of complex geriatric medication regimens, matching them against gold-standard clinical rulesets while leveraging local and remote Gemma models to parse text, predict structural interactions, and write clinical safety reports.
 
-## 🧠 Three Gemma Models
+---
 
-| Model | Role | Deployment |
-|-------|------|------------|
-| **MedGemma 4B-IT** | Parse free-text prescriptions → structured medication lists | AMD GPU pod (vLLM + ROCm) |
-| **TxGemma 2B** | Predict drug-drug interactions from SMILES molecular structures | AMD GPU pod (vLLM + ROCm) |
-| **Gemma 4 31B** | Generate clinical risk reports and deprescribing suggestions | Fireworks AI API |
+## 🏗️ Multi-Model Gemma Architecture
 
-## 🏗️ Architecture
+To maximize performance, privacy, and eligibility for the best AMD-hosted Gemma prize, DrugLens orchestrates **three distinct Gemma models**:
 
 ```
-┌──────────────────────────────────┐
-│      Streamlit Web UI            │
-│  (Input → Dashboard → Reports)   │
-├──────────────────────────────────┤
-│      Analysis Pipeline           │
-│  Parse → Check → Predict → Report│
-├───────┬────────┬────────┬────────┤
-│DDInter│ Beers  │ STOPP/ │ Gemma  │
-│DB +   │Criteria│ START  │ Models │
-│RxNorm │ JSON   │ JSON   │ (3x)   │
-└───────┴────────┴────────┴────────┘
+                  ┌────────────────────────────────────────┐
+                  │           Clinician Input              │
+                  │   (Free-text notes or prescription)   │
+                  └───────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                  ┌────────────────────────────────────────┐
+                  │       [Model 1] MedGemma 4B            │  ◄── (Local AMD GPU / vLLM)
+                  │       Parses notes -> Structured JSON  │
+                  └───────────────────┬────────────────────┘
+                                      │
+                                      ▼
+                  ┌────────────────────────────────────────┐
+                  │            Analysis Engine             │
+                  │  Matches local DBs, Beers, STOPP/START │
+                  └───────────────────┬────────────────────┘
+                                      │
+              ┌───────────────────────┴───────────────────────┐
+              ▼                                               ▼
+┌───────────────────────────┐                   ┌───────────────────────────┐
+│   [Model 2] TxGemma 2B    │                   │   [Model 3] Gemma 4 31B   │
+│  Predicts novel DDIs from │                   │ Generates final clinical  │
+│  molecular SMILES strings │                   │ report & patient summary  │
+└───────────────────────────┘                   └───────────────────────────┘
+ ◄── (Local AMD GPU / vLLM)                      ◄── (Fireworks AI / AMD)
 ```
 
-## 🚀 Quick Start
+1. **MedGemma 4B-IT (Local on AMD Instinct GPU / vLLM + ROCm)**
+   * **Role**: Clinical parsing. Extracts medication names, dosages, route, and frequency from raw, unstructured clinical entry notes.
+2. **TxGemma 2B (Local on AMD Instinct GPU / vLLM + ROCm)**
+   * **Role**: Therapeutic interaction prediction. For drug pairs not present in our verified database, TxGemma resolves their molecular SMILES structures via PubChem and predicts potential structural interactions.
+3. **Gemma 4 31B-IT (Remote API via Fireworks AI on AMD Infrastructure)**
+   * **Role**: Report orchestration and synthesis. Reviews the compiled list of interactions, Beers alerts, and STOPP/START flags to generate a professional clinical safety report and a simplified patient-friendly summary.
 
-### Option 1: Local Python (Fastest)
+---
+
+## 📜 Clinical Foundations Included
+
+DrugLens is built on top of digitized versions of the most trusted geriatric pharmacology guidelines:
+
+### 1. AGS Beers Criteria (2023 Update)
+A guideline from the American Geriatrics Society cataloging Potentially Inappropriate Medications (PIMs) that older adults should avoid or use with caution. DrugLens includes a digitized index of **50+ high-risk PIM classes** (anticholinergics, long-acting sulfonylureas, skeletal muscle relaxants, high-dose digoxin).
+
+### 2. STOPP/START Criteria (Version 3, 2023)
+* **STOPP** (Screening Tool of Older Persons' Prescriptions): Identifies medications that should be discontinued (e.g., PPIs long-term without indication, duplicate drug classes, benzodiazepines in patients with a history of falls).
+* **START** (Screening Tool to Alert to Right Treatment): Suggests crucial medications that should be initiated based on the patient's underlying conditions (e.g., Statins for secondary cardiovascular prevention, ACE-inhibitors in heart failure).
+
+---
+
+## 🔌 Graceful Fallback Architecture
+
+To ensure the application remains operational in resource-constrained environments (or when local GPUs are offline), DrugLens is built with a **resilient multi-tier fallback architecture**:
+
+| Feature | Primary AI Engine (GPU) | Graceful Fallback (CPU-only / API) |
+|---------|-------------------------|------------------------------------|
+| **Medication Parsing** | **MedGemma 4B** (Local vLLM) parses messy prescriptions | **Structured Regex Engine** splits and matches standard dosages |
+| **DDI Checking** | **TxGemma 2B** predicts novel interactions from molecular SMILES | **Verified Local DB** check (100+ clinical pairs indexed) |
+| **Risk Report** | **Gemma 4 31B** (Fireworks) writes custom clinical analysis | **Rule-Based Engine** compiles score & fills structured template |
+
+---
+
+## 🚀 Step-by-Step Walkthrough
+
+### 1. Local Python Run (CPU-Only / API Mode)
+
+Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for Gemma 4 reports.
 
 ```bash
-# Clone
-git clone https://github.com/YOUR_USERNAME/druglens.git
-cd druglens
+# Clone the repository
+git clone https://github.com/Vishwazeer/DrugLens.git
+cd DrugLens
 
-# Install
+# Install requirements
 pip install -r requirements.txt
 
-# Configure
+# Create .env config
 cp .env.example .env
-# Edit .env with your Fireworks AI API key
+# Edit .env and insert your: FIREWORKS_API_KEY=your_key_here
 
-# Run
+# Launch the app
 streamlit run app.py
 ```
 
-Open http://localhost:8501
+### 2. AMD GPU Pod Setup (Full 3-Model Pipeline)
 
-### Option 2: Docker (CPU-only, Fireworks API)
+When you deploy your AMD Instinct GPU pod on the AMD Developer Cloud:
 
 ```bash
-cp .env.example .env
-# Add your FIREWORKS_API_KEY to .env
+# SSH into your pod, clone, and configure
+git clone https://github.com/Vishwazeer/DrugLens.git
+cd DrugLens
 
+# Create .env with Hugging Face Token (needed for gated MedGemma/TxGemma models)
+echo "HF_TOKEN=your_huggingface_read_token" > .env
+# Also add your Fireworks key for reports:
+echo "FIREWORKS_API_KEY=your_fireworks_key" >> .env
+
+# Make setup script executable and run it
+chmod +x setup_amd_pod.sh
+./setup_amd_pod.sh
+```
+
+Select **Option 2 (Native Python/vLLM)** when prompted. The script will automatically:
+1. Verify GPU availability with `rocm-smi`.
+2. Install `vllm` and authenticate with Hugging Face.
+3. Launch **MedGemma** on port `8001` and **TxGemma** on port `8002` in the background.
+
+---
+
+## 🐳 Docker Deployment
+
+We provide ready-to-use Docker compose profiles for different setups.
+
+### CPU / API Mode (No local GPU needed)
+```bash
 docker compose --profile cpu-only up --build
 ```
+*Port exposed: `8501`*
 
-### Option 3: Docker with AMD GPU (Full Pipeline)
-
+### Full GPU Mode (MedGemma + TxGemma + App served locally on ROCm)
 ```bash
-cp .env.example .env
-# Add FIREWORKS_API_KEY and HF_TOKEN to .env
-
 docker compose --profile gpu up --build
 ```
+*Note: Requires AMD GPU pass-through capability inside Docker.*
 
-Requires: AMD GPU with ROCm drivers installed.
+---
 
-## 📋 Usage
+## 🧪 Interactive Demo Cases
 
-1. **Enter medications** — free text or one per line (brand or generic names accepted)
-2. **Set patient info** — age, conditions, eGFR
-3. **Click Analyze** — get instant results across 5 tabs
-4. **Try demo cases** — 3 pre-loaded scenarios (mild, moderate, severe)
+To help judges evaluate the application immediately, the sidebar contains three pre-loaded clinical scenarios:
 
-### Demo Cases
+* **Case 1 — Mild (Low Risk)**: A 70yo patient on metformin, lisinopril, and amlodipine. Demonstrates how the system handles safe, standard therapies without triggering false alarms.
+* **Case 2 — Moderate (Medium Risk)**: A 78yo patient on ibuprofen, lisinopril, sertraline, and omeprazole. Triggers:
+  * NSAID + ACE inhibitor interaction (acute kidney injury risk).
+  * Beers warning for long-term PPI use (osteoporosis/infection risk).
+* **Case 3 — Severe (High Risk)**: An 85yo patient on 8 medications (warfarin, digoxin, amiodarone, lorazepam, oxycodone, diphenhydramine, furosemide, KCl). Triggers:
+  * Major interactions: Warfarin ↔ Amiodarone, Digoxin ↔ Amiodarone.
+  * FDA Black Box: Opioid (oxycodone) + Benzodiazepine (lorazepam) respiratory depression.
+  * Beers: Benzodiazepines, high-dose digoxin, and first-generation antihistamines in the elderly.
+  * High anticholinergic burden.
 
-| Case | Patient | Medications | Expected Risk |
-|------|---------|-------------|---------------|
-| Mild | 70yo, HTN + DM2 | metformin, lisinopril, amlodipine | LOW |
-| Moderate | 78yo, OA + GERD + HTN + depression | omeprazole, ibuprofen, lisinopril, sertraline | MODERATE |
-| Severe | 85yo, AFib + anxiety + insomnia + pain + CHF | warfarin, digoxin, amiodarone, lorazepam, oxycodone, diphenhydramine, furosemide, KCl | HIGH |
+---
 
-## 🔧 Configuration
-
-All settings via environment variables (see `.env.example`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `FIREWORKS_API_KEY` | — | Required for Gemma 4 reports |
-| `FIREWORKS_BASE_URL` | `https://api.fireworks.ai/inference/v1` | Fireworks API endpoint |
-| `GEMMA_MODEL` | `accounts/fireworks/models/gemma-4-31b-it` | Gemma model on Fireworks |
-| `MEDGEMMA_BASE_URL` | `http://localhost:8001/v1` | Local MedGemma endpoint |
-| `TXGEMMA_BASE_URL` | `http://localhost:8002/v1` | Local TxGemma endpoint |
-| `USE_LLM_PARSER` | `true` | Enable MedGemma parsing |
-| `USE_TXGEMMA` | `true` | Enable TxGemma predictions |
-| `USE_GEMMA4` | `true` | Enable Gemma 4 reports |
-
-## 📁 Project Structure
+## 📁 Repository Structure
 
 ```
-druglens/
-├── app.py                  # Streamlit web UI
-├── requirements.txt        # Python dependencies
-├── Dockerfile              # Container definition
-├── docker-compose.yml      # Multi-service orchestration
-├── .env.example            # Environment template
+DrugLens/
+├── app.py                  # Streamlit Web UI & visualization dashboards
+├── setup_amd_pod.sh        # Automates ROCm + vLLM model deployments
+├── Dockerfile              # Docker image definition for Streamlit App
+├── docker-compose.yml      # Multi-service container definitions
+├── requirements.txt        # Python package dependencies
 ├── data/
-│   ├── beers_criteria.json     # AGS Beers 2023 (50+ PIMs)
-│   ├── stopp_start.json        # STOPP/START v3 2023 (40+20 rules)
-│   └── drug_interactions.json  # 100+ clinically significant DDIs
+│   ├── beers_criteria.json     # Digitized AGS Beers 2023 PIMs
+│   ├── stopp_start.json        # Digitized STOPP/START v3 rules
+│   └── drug_interactions.json  # Curated index of 100+ clinical DDIs
 └── src/
-    ├── config.py               # Configuration
-    ├── drug_interactions.py     # DDI checking + Beers + STOPP/START
-    ├── med_parser.py            # MedGemma + regex parser
-    ├── ddi_predictor.py         # TxGemma DDI prediction
-    ├── report_generator.py      # Gemma 4 report generation
-    └── analyzer.py              # Main orchestrator
+    ├── config.py               # Config parsing
+    ├── drug_interactions.py     # Deterministic rules matching engine
+    ├── med_parser.py            # Parser orchestrator
+    ├── ddi_predictor.py         # TxGemma SMILES-based predictor
+    ├── report_generator.py      # Gemma 4 summary compiler
+    └── analyzer.py              # Main orchestrator pipeline
 ```
 
-## 🏆 AMD Platform Usage
-
-- **AMD Developer Cloud** — MedGemma 4B and TxGemma 2B served via vLLM on AMD Instinct GPUs
-- **ROCm** — GPU computing platform for model inference
-- **Fireworks AI** — Gemma 4 31B inference on AMD-hosted infrastructure
+---
 
 ## ⚠️ Disclaimer
 
-DrugLens is for **educational and research purposes only**. It is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a qualified healthcare provider before making medication changes.
-
-## 📄 License
-
-MIT
-
-## 🙏 Credits
-
-- **AGS Beers Criteria** — American Geriatrics Society
-- **STOPP/START v3** — O'Mahony et al. (2023), CC BY 4.0
-- **Google DeepMind** — MedGemma, TxGemma, Gemma 4
-- **AMD** — Developer Cloud, ROCm
-- **Fireworks AI** — Model inference API
+DrugLens is for **educational, demonstration, and research purposes only**. It is not a certified diagnostic tool or a substitute for professional clinical judgment. Always consult a licensed medical professional before making adjustments to any medication regimen.
