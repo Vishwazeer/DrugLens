@@ -1,0 +1,96 @@
+services:
+  # --- MedGemma 4B (local AMD GPU) ---
+  medgemma:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: druglens-medgemma
+    command: >
+      --model google/medgemma-4b-it
+      --host 0.0.0.0
+      --port 8001
+      --max-model-len 4096
+      --gpu-memory-utilization 0.4
+    ports:
+      - "8001:8001"
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    profiles:
+      - gpu  # Only starts with: docker compose --profile gpu up
+
+  # --- TxGemma 2B (local AMD GPU) ---
+  txgemma:
+    image: vllm/vllm-openai-rocm:latest
+    container_name: druglens-txgemma
+    command: >
+      --model google/txgemma-2b-it
+      --host 0.0.0.0
+      --port 8002
+      --max-model-len 2048
+      --gpu-memory-utilization 0.3
+    ports:
+      - "8002:8002"
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+    ipc: host
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    profiles:
+      - gpu  # Only starts with: docker compose --profile gpu up
+
+  # --- DrugLens App (CPU) ---
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: druglens-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - MEDGEMMA_BASE_URL=http://medgemma:8001/v1
+      - TXGEMMA_BASE_URL=http://txgemma:8002/v1
+    depends_on:
+      - medgemma
+      - txgemma
+    restart: unless-stopped
+
+  # --- CPU-only mode (no GPU needed) ---
+  app-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: druglens-app-cpu
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - USE_LLM_PARSER=false
+      - USE_TXGEMMA=false
+      - USE_GEMMA4=true  # Gemma 4 via Fireworks API (no local GPU)
+    profiles:
+      - cpu-only  # Starts with: docker compose --profile cpu-only up
+
+volumes:
+  huggingface-cache:
