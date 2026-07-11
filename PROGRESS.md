@@ -98,8 +98,17 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 **Verification evidence:** logic untouched — `pytest -q` 73 passed, `ruff check .` clean after rewrite; server restarted with theme; full-page screenshots reviewed at 1440×960 (landing, Case 3 overview, interaction cards, matrix, Beers tab) — all canonical fields render, layout clean, 0 console errors/warnings.
 
-## Phase 6 — Docs, CI, final QA, push — ⏳
-README accuracy, `.github/workflows/ci.yml`, ruff+pytest green, full runbook, security checklist, push, Actions confirmation.
+## Phase 6 — Docs, CI, final QA, push — ✅
+
+**What was built:**
+- **README accuracy pass:** Python ≥3.10 requirement; new Testing & Quality Gates section (ruff/pytest/smoke/live-preflight commands); Compose ≥2.24 note with empty-`.env` fallback; demo-case section rewritten to the *actual* frozen outcomes (Case 1 MINIMAL + eGFR-25 live tip, Case 2 with sertraline+ibuprofen instead of the impossible triple-whammy claim, Case 3 with STOPP/START findings); repository tree updated (tests/, scripts/, .github/, .streamlit/, pyproject); known-limitations note.
+- **CI:** `.github/workflows/ci.yml` — setup-python 3.11 with pip cache → `ruff check .` → `pytest -q` (fully offline by design) → `python scripts/smoke_check.py`.
+
+**Final verification (all green):** `ruff check .` 0 findings · `pytest -q` 73 passed · `smoke_check.py` exit 0 · compose configs validate (Phase 4) · UI click-through (Phases 3/5).
+
+**Security audit (pre-push):** `.env` absent from entire git history and index · key-pattern grep matches only literal `"not-needed"` placeholders · `.gitignore` + `.dockerignore` both cover `.env` · no credentials in any tracked file.
+
+**Outstanding (needs user):** Fireworks live preflight requires FIREWORKS_API_KEY in `.env` — run `python scripts\fireworks_live_check.py` before demo day to confirm the `gemma-4-31b-it` model id resolves (the script lists available Gemma models if it doesn't; swap GEMMA_MODEL in `.env` — no code change needed). The rule-based fallback keeps the app fully functional without it.
 
 ---
 

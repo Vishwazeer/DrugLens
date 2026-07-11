@@ -96,7 +96,7 @@ To ensure the application remains operational in resource-constrained environmen
 
 ### 1. Local Python Run (CPU-Only / API Mode)
 
-Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for Gemma 4 reports.
+Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for Gemma 4 reports. **Requires Python ≥ 3.10.**
 
 ```bash
 # Clone the repository
@@ -112,6 +112,19 @@ cp .env.example .env
 
 # Launch the app
 streamlit run app.py
+```
+
+### Testing & Quality Gates
+
+The deterministic pipeline is covered by a fully offline pytest suite (network calls are hard-blocked in tests) plus an assertive smoke check that freezes the three demo cases' expected outcomes. CI (GitHub Actions) runs ruff + pytest + the smoke check on every push.
+
+```bash
+pip install -r requirements-dev.txt
+
+ruff check .                            # lint — expect zero findings
+pytest -q                               # 73 offline tests
+python scripts/smoke_check.py           # demo cases hit their risk bands (exit code gated)
+python scripts/fireworks_live_check.py  # live preflight: API key + model id + end-to-end report
 ```
 
 ### 2. AMD GPU Pod Setup (Full 3-Model Pipeline)
@@ -148,29 +161,31 @@ We provide ready-to-use Docker compose profiles for different setups.
 ```bash
 docker compose --profile cpu-only up --build
 ```
-*Port exposed: `8501`*
+*Port exposed: `8501`. A `.env` file is optional (Docker Compose ≥ 2.24 — on older Compose versions create an empty `.env` first).*
 
 ### Full GPU Mode (MedGemma + TxGemma + App served locally on ROCm)
 ```bash
 docker compose --profile gpu up --build
 ```
-*Note: Requires AMD GPU pass-through capability inside Docker.*
+*Note: Requires AMD GPU pass-through capability inside Docker. The app container in this profile enables the MedGemma/TxGemma toggles by default.*
 
 ---
 
 ## 🧪 Interactive Demo Cases
 
-To help judges evaluate the application immediately, the sidebar contains three pre-loaded clinical scenarios:
+To help judges evaluate the application immediately, the sidebar contains three pre-loaded clinical scenarios (their outcomes are frozen by the test suite — `tests/test_demo_cases.py`):
 
-* **Case 1 — Mild (Low Risk)**: A 70yo patient on metformin, lisinopril, and amlodipine. Demonstrates how the system handles safe, standard therapies without triggering false alarms.
-* **Case 2 — Moderate (Medium Risk)**: A 78yo patient on ibuprofen, lisinopril, sertraline, and omeprazole. Triggers:
-  * NSAID + ACE inhibitor interaction (acute kidney injury risk).
-  * Beers warning for long-term PPI use (osteoporosis/infection risk).
-* **Case 3 — Severe (High Risk)**: An 85yo patient on 8 medications (warfarin, digoxin, amiodarone, lorazepam, oxycodone, diphenhydramine, furosemide, KCl). Triggers:
-  * Major interactions: Warfarin ↔ Amiodarone, Digoxin ↔ Amiodarone.
+* **Case 1 — Mild (MINIMAL risk)**: A 70yo patient on metformin, lisinopril, and amlodipine. Zero interactions, zero Beers/STOPP alerts — the system stays quiet for a safe regimen instead of crying wolf. **Live demo tip:** lower the eGFR input to 25 and re-analyze — the renal safety rules (metformin lactic-acidosis PIM, STOPP-E2) activate in real time.
+* **Case 2 — Moderate (MODERATE risk)**: A 78yo patient on omeprazole, ibuprofen, lisinopril, sertraline, and acetaminophen. Triggers:
+  * NSAID + ACE inhibitor interaction (acute kidney injury risk, major).
+  * Sertraline + ibuprofen interaction (GI bleeding risk, moderate).
+  * Beers warnings for long-term PPI use and chronic NSAID use in the elderly.
+* **Case 3 — Severe (HIGH risk)**: An 85yo patient on 8 medications (warfarin, digoxin, amiodarone, lorazepam, oxycodone, diphenhydramine, furosemide, KCl). Triggers:
+  * 6 major interactions, including Warfarin ↔ Amiodarone and Digoxin ↔ Amiodarone.
   * FDA Black Box: Opioid (oxycodone) + Benzodiazepine (lorazepam) respiratory depression.
-  * Beers: Benzodiazepines, high-dose digoxin, and first-generation antihistamines in the elderly.
-  * High anticholinergic burden.
+  * Beers: benzodiazepine in the elderly, first-generation antihistamine, ≥3 concurrent CNS-active drugs.
+  * STOPP: opioid + benzodiazepine combination, opioid without laxative prophylaxis.
+  * START: guideline-directed heart-failure therapy (ACE inhibitor, beta-blocker) flagged as missing.
 
 ---
 
@@ -178,23 +193,34 @@ To help judges evaluate the application immediately, the sidebar contains three 
 
 ```
 DrugLens/
-├── app.py                  # Streamlit Web UI & visualization dashboards
+├── app.py                  # Streamlit UI — "clinical instrument panel" design system
 ├── setup_amd_pod.sh        # Automates ROCm + vLLM model deployments
 ├── Dockerfile              # Docker image definition for Streamlit App
-├── docker-compose.yml      # Multi-service container definitions
-├── requirements.txt        # Python package dependencies
+├── docker-compose.yml      # gpu / cpu-only profiles
+├── pyproject.toml          # pytest + ruff config, requires-python >= 3.10
+├── requirements.txt        # Runtime dependencies
+├── requirements-dev.txt    # pytest + ruff
+├── PROGRESS.md             # Per-phase implementation & verification log
+├── .streamlit/config.toml  # Theme (native widgets match the design system)
+├── .github/workflows/ci.yml  # CI: ruff + pytest + smoke check
 ├── data/
-│   ├── beers_criteria.json     # Digitized AGS Beers 2023 PIMs
-│   ├── stopp_start.json        # Digitized STOPP/START v3 rules
-│   └── drug_interactions.json  # Curated index of 100+ clinical DDIs
-└── src/
-    ├── config.py               # Config parsing
-    ├── drug_interactions.py     # Deterministic rules matching engine
-    ├── med_parser.py            # Parser orchestrator
-    ├── ddi_predictor.py         # TxGemma SMILES-based predictor
-    ├── report_generator.py      # Gemma 4 summary compiler
-    └── analyzer.py              # Main orchestrator pipeline
+│   ├── beers_criteria.json     # AGS Beers 2023 PIMs (combination/eGFR-gated rules)
+│   ├── stopp_start.json        # STOPP/START v3 rules (combination/eGFR/absence gates)
+│   └── drug_interactions.json  # Curated index of 100+ clinical DDIs (deduplicated)
+├── src/
+│   ├── config.py               # Single source of settings (endpoints, key, flags)
+│   ├── drug_interactions.py    # Deterministic rules engine (DDI/Beers/STOPP/START)
+│   ├── med_parser.py           # MedGemma parser + regex fallback
+│   ├── ddi_predictor.py        # TxGemma SMILES-based predictor
+│   ├── report_generator.py     # Gemma 4 report + rule-based fallback
+│   └── analyzer.py             # Orchestrator pipeline + risk scoring
+├── scripts/
+│   ├── smoke_check.py          # Offline demo-case assertion script
+│   └── fireworks_live_check.py # Live Fireworks preflight (key + model id + report)
+└── tests/                  # 73 offline pytest tests (engines, parser, pipeline, demos)
 ```
+
+**Known limitations / future work:** duplicate drug-class detection (former STOPP-Q1) is not implemented; combination products (e.g. Percocet) map to their opioid component only; local vLLM code paths are unit-tested with mocks (verify on an AMD pod before GPU demos).
 
 ---
 
