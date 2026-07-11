@@ -114,4 +114,6 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 ## Verification evidence log
 
-*(appended after each phase)*
+- **2026-07-11 — Push + CI:** 8 commits pushed (`5e94627..439de4e`). GitHub Actions run **29147940833** GREEN — Install ✓, ruff ✓, pytest (73 offline) ✓, demo-case smoke check ✓. https://github.com/Vishwazeer/DrugLens/actions/runs/29147940833
+- **2026-07-11 — Security audit:** `.env` absent from full git history & index; no key-pattern matches beyond literal `"not-needed"` placeholders; `.gitignore`/`.dockerignore` cover `.env`.
+- **2026-07-11 — Final local gates:** `ruff check .` clean · `pytest -q` 73 passed · `scripts\smoke_check.py` exit 0 (MINIMAL/MODERATE/HIGH) · compose profiles validate without `.env` · live browser click-through of redesigned UI (Cases 1 & 3, all tabs, eGFR-25 renal demo) with 0 console errors.
