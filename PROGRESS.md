@@ -73,8 +73,14 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 - eGFR live demo: Case 1 re-analyzed at eGFR 25 → LOW with [STOPP-E2] Renal HIGH (metformin) surfacing, matching the sidebar tip.
 - Browser console: 0 errors, 0 warnings. `pytest -q` 73 passed; `ruff check .` clean.
 
-## Phase 4 — Deployment & ops — ⏳
-compose profiles + optional env_file, `.dockerignore`, `setup_amd_pod.sh` hardening.
+## Phase 4 — Deployment & ops — ✅
+
+**What was built:**
+- `docker-compose.yml`: `app` service moved into the `gpu` profile (no more double-bind of 8501 under cpu-only, no dependency failure on plain `up`); both app services use `env_file: {path: .env, required: false}` (Compose ≥2.24 noted inline); gpu app sets USE_LLM_PARSER/USE_TXGEMMA=true so the pod runs the full 3-model pipeline out of the box.
+- `.dockerignore` (new): `.env`, `.git`, `.venv`, caches, tests/, scripts/, `.github/` — a local `.env` can no longer be baked into images by `COPY . .`.
+- `setup_amd_pod.sh`: env loading via `set -a; . <(tr -d '\r' < .env); set +a` (CRLF- and space-safe); exports `HUGGING_FACE_HUB_TOKEN` (read natively by vLLM) with optional non-deprecated `hf auth login`.
+
+**Verification evidence:** with `.env` absent — `docker compose --profile cpu-only config` exit 0 (services: app-cpu only), `--profile gpu config` exit 0 (medgemma, txgemma, app), no-profile `config --services` lists nothing (no accidental starts); `bash -n setup_amd_pod.sh` OK.
 
 ## Phase 5 — Docs, CI, final QA, push — ⏳
 README accuracy, `.github/workflows/ci.yml`, ruff+pytest green, full runbook, security checklist, push, Actions confirmation.

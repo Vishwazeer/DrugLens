@@ -1,0 +1,19 @@
+# Secrets — never bake into images
+.env
+
+# VCS / environments / caches
+.git
+.gitignore
+.venv
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Dev-only artifacts
+tests/
+scripts/
+.github/
+PROGRESS.md
+requirements-dev.txt
+.playwright-mcp/

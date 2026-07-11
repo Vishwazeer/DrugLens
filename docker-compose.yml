@@ -57,7 +57,7 @@ services:
     profiles:
       - gpu  # Only starts with: docker compose --profile gpu up
 
-  # --- DrugLens App (CPU) ---
+  # --- DrugLens App (companion to the GPU model servers) ---
   app:
     build:
       context: .
@@ -66,14 +66,19 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - .env
+      - path: .env
+        required: false  # needs Compose >= 2.24; create an empty .env otherwise
     environment:
       - MEDGEMMA_BASE_URL=http://medgemma:8001/v1
       - TXGEMMA_BASE_URL=http://txgemma:8002/v1
+      - USE_LLM_PARSER=true
+      - USE_TXGEMMA=true
     depends_on:
       - medgemma
       - txgemma
     restart: unless-stopped
+    profiles:
+      - gpu  # Only starts with: docker compose --profile gpu up
 
   # --- CPU-only mode (no GPU needed) ---
   app-cpu:
@@ -84,7 +89,8 @@ services:
     ports:
       - "8501:8501"
     env_file:
-      - .env
+      - path: .env
+        required: false  # needs Compose >= 2.24; create an empty .env otherwise
     environment:
       - USE_LLM_PARSER=false
       - USE_TXGEMMA=false

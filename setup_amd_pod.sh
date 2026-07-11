@@ -18,9 +18,12 @@ else
     fi
 fi
 
-# 2. Load env variables from .env
+# 2. Load env variables from .env (CRLF- and whitespace-safe)
 if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    # shellcheck disable=SC1090
+    . <(tr -d '\r' < .env)
+    set +a
 else
     echo "ERROR: .env file not found. Please create it first."
     exit 1
@@ -31,10 +34,13 @@ if [ -z "$HF_TOKEN" ]; then
     exit 1
 fi
 
-# 3. HF Login
-echo "Logging into Hugging Face..."
+# 3. Hugging Face auth — vLLM reads HUGGING_FACE_HUB_TOKEN directly
+echo "Configuring Hugging Face authentication..."
+export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 pip install -q huggingface_hub
-huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+if command -v hf &> /dev/null; then
+    hf auth login --token "$HF_TOKEN" || true
+fi
 
 # 4. Choose Execution Path
 echo ""
