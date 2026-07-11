@@ -59,8 +59,19 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 **Verification evidence:** `pytest -q` → 73 passed · `ruff check .` → clean · `scripts\smoke_check.py` → exit 0 (Case 1 MINIMAL score 0 / Case 2 MODERATE score 10 / Case 3 HIGH score 39, no pipeline errors).
 
-## Phase 3 — UI alignment & demo polish — ⏳
-Canonical keys in all tabs, patient summary display, severity styling, config-driven toggles, "AI risk score N/100" labeling, manual click-through of all 3 demo cases.
+## Phase 3 — UI alignment & demo polish — ✅
+
+**What was built (`app.py`):**
+- Beers tab shows `[id] drug_class — recommendation` titles with matched drugs, rationale, category, and exceptions (was "Unknown" + blanks).
+- STOPP tab styled by rule severity (high/moderate) with real criteria text and matched drugs; START tab reads `recommended_drugs`.
+- AI Report tab: "🤖 AI risk score: N/100" heading with caption distinguishing it from the rule-based overview card; Key Alerts section added; Patient-Friendly Summary now reads `results["patient_summary"]` (displays for the first time).
+- Interaction cards gained an Evidence line; sidebar toggles default from `config.USE_*` (docker env flags now effective); conditions multiselect uses the shared `CONDITION_OPTIONS`; unused imports removed (ruff-clean).
+
+**Verification evidence (live browser click-through via Playwright, headless Streamlit on :8599):**
+- Case 1 loads without exception (the old StreamlitAPIException is gone), Analyze → MINIMAL / 3 meds / 0 interactions / 0 alerts; AI Report tab shows fallback score 10/100, START vaccine recommendations, patient summary.
+- Case 3 → HIGH / 8 meds / 6 interactions / 13 criteria alerts; all 6 major interaction cards render with Evidence; Beers cards fully populated ([BEERS-DDI-001] shows the 3 matched CNS drugs); STOPP-K2 HIGH styling; START-A2 suggested drugs listed.
+- eGFR live demo: Case 1 re-analyzed at eGFR 25 → LOW with [STOPP-E2] Renal HIGH (metformin) surfacing, matching the sidebar tip.
+- Browser console: 0 errors, 0 warnings. `pytest -q` 73 passed; `ruff check .` clean.
 
 ## Phase 4 — Deployment & ops — ⏳
 compose profiles + optional env_file, `.dockerignore`, `setup_amd_pod.sh` hardening.

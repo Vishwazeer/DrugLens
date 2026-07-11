@@ -11,7 +11,8 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Imports must follow load_dotenv() so src.config resolves the populated env
-from src.analyzer import analyze_medications, get_demo_cases  # noqa: E402
+from src import config  # noqa: E402
+from src.analyzer import CONDITION_OPTIONS, analyze_medications, get_demo_cases  # noqa: E402
 from src.drug_interactions import normalize_drug_name  # noqa: E402
 
 # --- Page Config ---
@@ -204,11 +205,11 @@ st.markdown("""
 with st.sidebar:
     st.markdown("### ⚙️ Configuration")
 
-    use_llm = st.toggle("Use MedGemma Parser", value=False,
-                         help="Parse medications with MedGemma AI. Disable for regex-only parsing.")
-    use_txgemma = st.toggle("Use TxGemma Predictions", value=False,
+    use_llm = st.toggle("Use MedGemma Parser", value=config.USE_LLM_PARSER,
+                        help="Parse medications with MedGemma AI. Disable for regex-only parsing.")
+    use_txgemma = st.toggle("Use TxGemma Predictions", value=config.USE_TXGEMMA,
                             help="Predict unknown drug interactions with TxGemma.")
-    use_gemma4 = st.toggle("Use Gemma 4 Reports", value=True,
+    use_gemma4 = st.toggle("Use Gemma 4 Reports", value=config.USE_GEMMA4,
                            help="Generate AI-powered reports with Gemma 4 via Fireworks AI.")
 
     st.markdown("---")
@@ -277,13 +278,7 @@ with col_patient:
 
     patient_conditions = st.multiselect(
         "Conditions",
-        options=[
-            "Hypertension", "Diabetes Type 2", "Heart Failure", "Atrial Fibrillation",
-            "COPD", "Osteoarthritis", "GERD", "Depression", "Anxiety", "Insomnia",
-            "Chronic Kidney Disease", "Osteoporosis", "Dementia", "Parkinson's Disease",
-            "Hypothyroidism", "Gout", "Epilepsy", "Asthma", "Coronary Artery Disease",
-            "Peripheral Artery Disease", "DVT/PE", "Chronic Pain"
-        ],
+        options=CONDITION_OPTIONS,
         default=default_conditions
     )
 
@@ -395,13 +390,17 @@ if "results" in st.session_state:
 
                 emoji = {"major": "🔴", "moderate": "🟡", "minor": "🟢"}.get(sev, "🟡")
 
+                evidence = ix.get("evidence_level", "")
+                evidence_line = (
+                    f"<br><b>Evidence:</b> {evidence.capitalize()}" if evidence else ""
+                )
                 st.markdown(f"""
                 <div class="alert-card {css}">
                     <div class="alert-title">{emoji} {ix.get('drug_a', '?')} ↔ {ix.get('drug_b', '?')} — {sev.upper()}</div>
                     <div class="alert-body">
                         <b>Effect:</b> {ix.get('effect', 'Unknown')}<br>
                         <b>Mechanism:</b> {ix.get('mechanism', 'Unknown')}<br>
-                        <b>Management:</b> {ix.get('management', 'Consult prescriber')}
+                        <b>Management:</b> {ix.get('management', 'Consult prescriber')}{evidence_line}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -478,7 +477,7 @@ if "results" in st.session_state:
                 rec = alert.get("recommendation", "Review")
                 st.markdown(f"""
                 <div class="alert-card {css}">
-                    <div class="alert-title">{emoji} {alert.get('drug_class', 'Unknown')} — {rec}</div>
+                    <div class="alert-title">{emoji} [{alert.get('id', '')}] {alert.get('drug_class', 'Unknown')} — {rec}</div>
                     <div class="alert-body">
                         <b>Drugs matched:</b> {', '.join(alert.get('matched_drugs', []))}<br>
                         <b>Rationale:</b> {alert.get('rationale', 'N/A')}<br>
@@ -498,9 +497,12 @@ if "results" in st.session_state:
         if stopp:
             st.markdown(f"#### 🛑 {len(stopp)} STOPP Alert(s) — Consider Stopping")
             for rule in stopp:
+                sev = rule.get("severity", "moderate")
+                css = f"alert-{sev}" if sev in ("high", "moderate", "low") else "alert-moderate"
+                emoji = {"high": "🛑", "moderate": "🟡", "low": "🟢"}.get(sev, "🛑")
                 st.markdown(f"""
-                <div class="alert-card alert-high">
-                    <div class="alert-title">🛑 [{rule.get('id', '')}] {rule.get('category', '')}</div>
+                <div class="alert-card {css}">
+                    <div class="alert-title">{emoji} [{rule.get('id', '')}] {rule.get('category', '')} — {sev.upper()}</div>
                     <div class="alert-body">
                         <b>Criteria:</b> {rule.get('criteria', '')}<br>
                         <b>Drugs matched:</b> {', '.join(rule.get('matched_drugs', []))}<br>
@@ -519,7 +521,7 @@ if "results" in st.session_state:
                     <div class="alert-title">✅ [{rule.get('id', '')}] {rule.get('category', '')}</div>
                     <div class="alert-body">
                         <b>Criteria:</b> {rule.get('criteria', '')}<br>
-                        <b>Suggested drugs:</b> {', '.join(rule.get('drugs', []))}<br>
+                        <b>Suggested drugs:</b> {', '.join(rule.get('recommended_drugs', []))}<br>
                         <b>Rationale:</b> {rule.get('rationale', '')}
                     </div>
                 </div>
@@ -531,6 +533,14 @@ if "results" in st.session_state:
     with tab_report:
         report = results.get("risk_report", {})
         if report:
+            ai_score = report.get("risk_score_numeric")
+            if ai_score is not None:
+                st.markdown(f"#### 🤖 AI risk score: {ai_score}/100")
+                st.caption(
+                    "Gemma 4's own 0–100 assessment — complements the rule-based "
+                    "risk level shown in the overview card above."
+                )
+
             if report.get("summary"):
                 st.markdown("#### 📝 Summary")
                 st.info(report["summary"])
@@ -553,16 +563,21 @@ if "results" in st.session_state:
                     </div>
                     """, unsafe_allow_html=True)
 
+            if report.get("key_alerts"):
+                st.markdown("#### 🚨 Key Alerts")
+                for alert in report["key_alerts"]:
+                    st.markdown(f"- {alert}")
+
             if report.get("recommendations"):
                 st.markdown("#### ✅ Recommendations")
                 for rec in report["recommendations"]:
                     st.markdown(f"- {rec}")
-
-            if report.get("patient_summary"):
-                st.markdown("#### 👤 Patient-Friendly Summary")
-                st.success(report["patient_summary"])
         else:
             st.info("Enable Gemma 4 in settings for AI-powered reports, or run analysis first.")
+
+        if results.get("patient_summary"):
+            st.markdown("#### 👤 Patient-Friendly Summary")
+            st.success(results["patient_summary"])
 
     # --- Raw Data Tab ---
     with tab_raw:
