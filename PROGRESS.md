@@ -82,7 +82,23 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 **Verification evidence:** with `.env` absent — `docker compose --profile cpu-only config` exit 0 (services: app-cpu only), `--profile gpu config` exit 0 (medgemma, txgemma, app), no-profile `config --services` lists nothing (no accidental starts); `bash -n setup_amd_pod.sh` OK.
 
-## Phase 5 — Docs, CI, final QA, push — ⏳
+## Phase 5 — Frontend redesign (user request) — ✅
+
+**Decision:** kept Streamlit (a framework rewrite days before judging would invalidate the verified Docker/compose/test/run stack for zero functional gain) and replaced the entire presentation layer with a **"clinical instrument panel"** design system.
+
+**What was built (`app.py` + new `.streamlit/config.toml`):**
+- Design tokens: deep-ink layered surfaces with radial glows + SVG noise grain, hairline borders, AMD-red signature accent, severity palette (red/amber/green/blue), typography = Instrument Sans (UI) + Instrument Serif italic (tagline) + Spline Sans Mono (all data, ids, numerals, labels).
+- Hero header: Drug**Lens** wordmark, serif tagline "a second pair of eyes for every prescription", animated ECG trace (CSS stroke-dashoffset), mono pipeline chips (per-model role labels).
+- Stat tiles: corner-bracket instrument tiles with staggered rise animation; risk tile has pulsing severity dot + a threshold track showing the score against the MOD/HIGH cut-points.
+- Alert cards: severity rail + gradient wash, mono rule-id chips, right-aligned severity tags, hover micro-interactions; shared `alert_card()` renderer for interactions/Beers/STOPP/START/deprescribing.
+- Tabs restyled as a segmented control; section headers as mono small-caps rules with counts; styled empty-states; refined footer.
+- Interaction matrix rebuilt per the dataviz method: **validated** sequential severity ramp (#EDCB6B→#CE6C28→#E14953 — CVD ΔE 20.5 pass, contrast pass via `validate_palette.js`), 3px cell gaps, discrete 4-band legend, mono tick labels, per-cell hover tooltips, recessive axes.
+- `.streamlit/config.toml` theme (primaryColor = brand red) so native widgets — toggles, multiselect chips, focus rings — match automatically.
+- Streamlit chrome hidden (menu/footer), `prefers-reduced-motion` respected.
+
+**Verification evidence:** logic untouched — `pytest -q` 73 passed, `ruff check .` clean after rewrite; server restarted with theme; full-page screenshots reviewed at 1440×960 (landing, Case 3 overview, interaction cards, matrix, Beers tab) — all canonical fields render, layout clean, 0 console errors/warnings.
+
+## Phase 6 — Docs, CI, final QA, push — ⏳
 README accuracy, `.github/workflows/ci.yml`, ruff+pytest green, full runbook, security checklist, push, Actions confirmation.
 
 ---

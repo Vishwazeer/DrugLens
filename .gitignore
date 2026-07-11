@@ -16,3 +16,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# Browser verification artifacts
+.playwright-mcp/
+*.png
