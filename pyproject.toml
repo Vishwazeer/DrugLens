@@ -1,0 +1,20 @@
+[project]
+name = "druglens"
+version = "1.0.0"
+description = "AI-powered geriatric polypharmacy risk analyzer (AMD Hackathon ACT II, Track 3)"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",  # long lines in data-heavy prompt/CSS blocks
+]
