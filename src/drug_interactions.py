@@ -1,10 +1,27 @@
-"""Drug interaction checking engine for DrugLens."""
+"""Drug interaction checking engine for DrugLens.
+
+Deterministic rules layer: pairwise DDI lookup, AGS Beers Criteria (2023),
+and STOPP/START v3 screening, with combination-rule and eGFR-aware gating.
+
+Rule files may carry these optional gating keys (AND semantics — every gate
+present on a rule must pass for it to fire):
+
+- ``combination_groups``: list of drug-name groups; fires only when EVERY
+  group has at least one matched drug (e.g. opioid + benzodiazepine).
+- ``min_matches``: fires only when >= N distinct drugs from ``drugs`` match
+  (e.g. >=3 concurrent CNS-active drugs).
+- ``egfr_below``: fires only when the patient's eGFR is known and below N.
+- ``absent_drugs`` (STOPP): fires only when NONE of these are co-prescribed
+  (e.g. opioid without laxative prophylaxis).
+- ``conditions`` / ``min_age``: patient-condition and age gates.
+"""
 
 import json
-import requests
 from itertools import combinations
 from pathlib import Path
 from typing import Optional
+
+import requests
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 
@@ -14,11 +31,20 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 _interaction_db: list[dict] | None = None
 _smiles_cache: dict[str, Optional[str]] = {}
 
+
+def reset_caches() -> None:
+    """Clear module caches (used by tests)."""
+    global _interaction_db
+    _interaction_db = None
+    _smiles_cache.clear()
+
+
 # ---------------------------------------------------------------------------
-# 50+ common brand → generic mappings
+# Brand -> generic mappings
 # ---------------------------------------------------------------------------
 DRUG_ALIASES: dict[str, str] = {
     "tylenol": "acetaminophen",
+    "paracetamol": "acetaminophen",
     "advil": "ibuprofen",
     "motrin": "ibuprofen",
     "aleve": "naproxen",
@@ -80,14 +106,15 @@ DRUG_ALIASES: dict[str, str] = {
     "depakote": "valproic acid",
     "lamictal": "lamotrigine",
     "vicodin": "hydrocodone",
+    # Combination products map to their opioid component; the acetaminophen
+    # part is not tracked separately (accepted limitation).
     "percocet": "oxycodone",
     "oxycontin": "oxycodone",
-    "tramadol": "tramadol",
     "celebrex": "celecoxib",
     "viagra": "sildenafil",
     "cialis": "tadalafil",
     "eliquis": "apixaban",
-    "xarelto": "rivarelbaan",
+    "xarelto": "rivaroxaban",
     "pradaxa": "dabigatran",
     "benadryl": "diphenhydramine",
     "zyrtec": "cetirizine",
@@ -98,11 +125,59 @@ DRUG_ALIASES: dict[str, str] = {
     "ventolin": "albuterol",
     "proair": "albuterol",
     "spiriva": "tiotropium",
-    "metformin": "metformin",
 }
 
-# Fix typo above
-DRUG_ALIASES["xarelto"] = "rivaroxaban"
+# ---------------------------------------------------------------------------
+# Condition-vocabulary synonyms: UI labels <-> rule-data terms.
+# expand_conditions() maps any member of a group to the whole group, so
+# "Heart Failure" (UI), "chf" (clinical note) and "heart failure" (rule data)
+# all intersect.
+# ---------------------------------------------------------------------------
+CONDITION_SYNONYM_GROUPS: list[frozenset[str]] = [
+    frozenset({"diabetes type 2", "type 2 diabetes", "diabetes", "t2dm", "diabetes mellitus"}),
+    frozenset({"heart failure", "chf", "congestive heart failure", "hfref"}),
+    frozenset({"atrial fibrillation", "afib", "a-fib", "af"}),
+    frozenset({"chronic kidney disease", "ckd", "renal impairment", "renal failure"}),
+    frozenset({"gerd", "gastroesophageal reflux disease", "reflux", "acid reflux"}),
+    frozenset({"dvt/pe", "dvt", "pe", "pulmonary embolism", "venous thromboembolism", "vte",
+               "deep vein thrombosis"}),
+    frozenset({"parkinson's disease", "parkinson", "parkinsons", "parkinson disease"}),
+    frozenset({"coronary artery disease", "cad", "ischemic heart disease",
+               "cardiovascular disease"}),
+    frozenset({"peripheral artery disease", "pad", "peripheral vascular disease"}),
+    frozenset({"stroke", "cva", "tia", "cerebrovascular disease"}),
+    frozenset({"copd", "chronic obstructive pulmonary disease"}),
+    frozenset({"depression", "major depression"}),
+    frozenset({"chronic pain", "pain"}),
+    frozenset({"epilepsy", "seizure", "seizure disorder"}),
+    frozenset({"dementia", "alzheimer's disease", "cognitive impairment"}),
+    frozenset({"gout", "hyperuricemia"}),
+    frozenset({"osteoporosis", "fragility fracture"}),
+    frozenset({"bph", "benign prostatic hyperplasia", "prostatism"}),
+    frozenset({"falls", "fall risk", "history of falls"}),
+    frozenset({"orthostatic hypotension", "postural hypotension"}),
+    frozenset({"glaucoma", "narrow-angle glaucoma", "closed-angle glaucoma"}),
+    frozenset({"constipation", "chronic constipation"}),
+    frozenset({"peptic ulcer", "peptic ulcer disease", "gi bleeding"}),
+    frozenset({"osteoarthritis", "oa"}),
+]
+
+_CONDITION_INDEX: dict[str, frozenset[str]] = {
+    term: group for group in CONDITION_SYNONYM_GROUPS for term in group
+}
+
+
+def expand_conditions(conditions: list[str] | None) -> set[str]:
+    """Lowercase each condition and expand it with its known synonyms."""
+    expanded: set[str] = set()
+    for cond in conditions or []:
+        term = cond.strip().lower()
+        if not term:
+            continue
+        expanded.add(term)
+        expanded.update(_CONDITION_INDEX.get(term, frozenset()))
+    return expanded
+
 
 # ---------------------------------------------------------------------------
 # Severity ordering
@@ -111,7 +186,7 @@ _SEVERITY_ORDER = {"major": 0, "moderate": 1, "minor": 2, "unknown": 3}
 
 
 def normalize_drug_name(name: str) -> str:
-    """Normalize drug name: lowercase, strip, resolve aliases."""
+    """Normalize drug name: lowercase, strip, resolve brand aliases."""
     cleaned = name.strip().lower()
     return DRUG_ALIASES.get(cleaned, cleaned)
 
@@ -141,18 +216,27 @@ def load_interaction_db() -> list[dict]:
 
     db_path = DATA_DIR / "drug_interactions.json"
     if db_path.exists():
-        with open(db_path, "r", encoding="utf-8") as f:
+        with open(db_path, encoding="utf-8") as f:
             _interaction_db = json.load(f)
     else:
         _interaction_db = []
     return _interaction_db
 
 
-def check_interactions(medications: list[str]) -> list[dict]:
-    """Check all pairs of medications against interaction database.
+def _load_json(filename: str, default: list | dict) -> list | dict:
+    path = DATA_DIR / filename
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return default
 
-    Returns interactions sorted by severity (major first).
-    Each result: {drug_a, drug_b, severity, mechanism, effect, management}.
+
+def check_interactions(medications: list[str]) -> list[dict]:
+    """Check all pairs of medications against the interaction database.
+
+    Returns interactions sorted by severity (major first). Each result:
+    {drug_a, drug_b, severity, mechanism, effect, management,
+    evidence_level, source}.
     """
     db = load_interaction_db()
     normalized = [normalize_drug_name(m) for m in medications]
@@ -176,85 +260,96 @@ def check_interactions(medications: list[str]) -> list[dict]:
                     "mechanism": entry.get("mechanism", ""),
                     "effect": entry.get("effect", ""),
                     "management": entry.get("management", ""),
+                    "evidence_level": entry.get("evidence_level", ""),
+                    "source": "database",
                 })
+                break  # one alert per medication pair
 
     results.sort(key=lambda r: _SEVERITY_ORDER.get(r["severity"], 99))
     return results
+
+
+def _rule_matches(rule: dict, normalized_meds: set[str]) -> list[str]:
+    """Return the matched drugs if the rule's drug logic is satisfied, else [].
+
+    ``combination_groups`` (all-groups semantics) takes precedence over the
+    flat ``drugs`` list with its optional ``min_matches`` threshold.
+    """
+    groups = rule.get("combination_groups")
+    if groups:
+        matched: list[str] = []
+        for group in groups:
+            group_set = {g.lower() for g in group}
+            hits = sorted(normalized_meds & group_set)
+            if not hits:
+                return []
+            matched.extend(hits)
+        return sorted(set(matched))
+
+    flat = {d.lower() for d in rule.get("drugs", [])}
+    matched = sorted(normalized_meds & flat)
+    if len(matched) < rule.get("min_matches", 1):
+        return []
+    return matched
+
+
+def _passes_patient_gates(
+    rule: dict,
+    patient_age: int,
+    expanded_conditions: set[str],
+    egfr: float | None,
+) -> bool:
+    """Apply age, condition, and eGFR gates shared by Beers and STOPP/START."""
+    if patient_age < rule.get("min_age", 0):
+        return False
+
+    rule_conditions = {c.lower() for c in rule.get("conditions", [])}
+    if rule_conditions and not (rule_conditions & expanded_conditions):
+        return False
+
+    egfr_below = rule.get("egfr_below")
+    if egfr_below is not None and (egfr is None or egfr >= egfr_below):
+        return False
+
+    return True
 
 
 def check_beers_criteria(
     medications: list[str],
     patient_age: int,
     conditions: list[str] | None = None,
+    egfr: float | None = None,
 ) -> list[dict]:
-    """Check medications against Beers Criteria for older adults.
+    """Check medications against AGS Beers Criteria for adults >= 65.
 
-    Returns list of triggered criteria with recommendation, rationale, severity.
+    Each alert: {id, category, drug_class, matched_drugs, recommendation,
+    rationale, severity, exceptions, quality_of_evidence}.
     """
     if patient_age < 65:
         return []
 
-    beers_path = DATA_DIR / "beers_criteria.json"
-    if beers_path.exists():
-        with open(beers_path, "r", encoding="utf-8") as f:
-            criteria = json.load(f)
-    else:
-        criteria = []
-
-    normalized = [normalize_drug_name(m) for m in medications]
-    conditions_lower = [c.lower() for c in (conditions or [])]
+    criteria: list[dict] = _load_json("beers_criteria.json", [])
+    normalized = {normalize_drug_name(m) for m in medications}
+    expanded = expand_conditions(conditions)
     results: list[dict] = []
 
     for criterion in criteria:
-        # Drug-specific criteria
-        criterion_drugs = [d.lower() for d in criterion.get("drugs", [])]
-        matched_drugs = [d for d in normalized if d in criterion_drugs]
-
-        if not matched_drugs:
-            # Check drug class matching
-            drug_classes = [c.lower() for c in criterion.get("drug_classes", [])]
-            for d in normalized:
-                for dc in drug_classes:
-                    if dc in d or d in dc:
-                        matched_drugs.append(d)
-
+        matched_drugs = _rule_matches(criterion, normalized)
         if not matched_drugs:
             continue
-
-        # Condition-dependent check
-        required_conditions = [c.lower() for c in criterion.get("conditions", [])]
-        if required_conditions and not any(
-            rc in " ".join(conditions_lower) for rc in required_conditions
-        ):
+        if not _passes_patient_gates(criterion, patient_age, expanded, egfr):
             continue
 
         results.append({
-            "criterion_id": criterion.get("id", ""),
+            "id": criterion.get("id", ""),
             "category": criterion.get("category", ""),
-            "drugs_matched": matched_drugs,
+            "drug_class": criterion.get("drug_class", ""),
+            "matched_drugs": matched_drugs,
             "recommendation": criterion.get("recommendation", ""),
             "rationale": criterion.get("rationale", ""),
             "severity": criterion.get("severity", "moderate"),
+            "exceptions": criterion.get("exceptions", ""),
             "quality_of_evidence": criterion.get("quality_of_evidence", ""),
-        })
-
-    # Check for ≥3 CNS-active drugs
-    cns_drugs_list = {
-        "alprazolam", "lorazepam", "diazepam", "clonazepam", "zolpidem",
-        "eszopiclone", "gabapentin", "pregabalin", "quetiapine", "olanzapine",
-        "risperidone", "aripiprazole", "oxycodone", "hydrocodone", "tramadol",
-        "amitriptyline", "nortriptyline", "doxepin", "diphenhydramine",
-    }
-    cns_matched = [d for d in normalized if d in cns_drugs_list]
-    if len(cns_matched) >= 3:
-        results.append({
-            "criterion_id": "BEERS-CNS-POLY",
-            "category": "Drug-Drug Interaction",
-            "drugs_matched": cns_matched,
-            "recommendation": "Avoid use of ≥3 CNS-active drugs concurrently",
-            "rationale": "Increased risk of falls, fractures, cognitive impairment",
-            "severity": "major",
-            "quality_of_evidence": "High",
         })
 
     return results
@@ -264,74 +359,70 @@ def check_stopp_start(
     medications: list[str],
     patient_age: int,
     conditions: list[str] | None = None,
+    egfr: float | None = None,
 ) -> dict:
-    """Check medications against STOPP/START criteria.
+    """Check medications against STOPP/START criteria (geriatric, age >= 65).
 
     STOPP: drugs the patient IS taking that should be stopped.
     START: drugs the patient is NOT taking that should be started.
     """
-    stopp_path = DATA_DIR / "stopp_start.json"
-    if stopp_path.exists():
-        with open(stopp_path, "r", encoding="utf-8") as f:
-            criteria = json.load(f)
-    else:
-        criteria = {"stopp": [], "start": []}
+    if patient_age < 65:
+        return {"stopp": [], "start": []}
 
-    normalized = set(normalize_drug_name(m) for m in medications)
-    conditions_lower = set(c.lower() for c in (conditions or []))
+    criteria: dict = _load_json("stopp_start.json", {"stopp": [], "start": []})
+    normalized = {normalize_drug_name(m) for m in medications}
+    expanded = expand_conditions(conditions)
     stopp_results: list[dict] = []
     start_results: list[dict] = []
 
-    # STOPP: drugs patient is taking that should be stopped
     for rule in criteria.get("stopp", []):
-        rule_drugs = set(d.lower() for d in rule.get("drugs", []))
-        matched = normalized & rule_drugs
+        matched = _rule_matches(rule, normalized)
         if not matched:
             continue
-
-        # Check if age condition applies
-        min_age = rule.get("min_age", 0)
-        if patient_age < min_age:
+        if not _passes_patient_gates(rule, patient_age, expanded, egfr):
             continue
 
-        # Check condition requirements
-        rule_conditions = set(c.lower() for c in rule.get("conditions", []))
-        if rule_conditions and not (rule_conditions & conditions_lower):
+        # Absence gate: rule fires only when no protective co-prescription exists
+        absent = {d.lower() for d in rule.get("absent_drugs", [])}
+        if absent and (absent & normalized):
             continue
 
         stopp_results.append({
-            "rule_id": rule.get("id", ""),
+            "id": rule.get("id", ""),
+            "section": rule.get("section", ""),
             "category": rule.get("category", ""),
-            "drugs_matched": list(matched),
-            "recommendation": rule.get("recommendation", ""),
+            "criteria": rule.get("criteria", ""),
+            "matched_drugs": matched,
             "rationale": rule.get("rationale", ""),
-            "evidence": rule.get("evidence", ""),
+            "severity": rule.get("severity", "moderate"),
+            "recommendation": rule.get("recommendation") or rule.get("criteria", ""),
         })
 
-    # START: drugs patient should be taking but isn't
     for rule in criteria.get("start", []):
-        rule_conditions = set(c.lower() for c in rule.get("conditions", []))
-        if not rule_conditions:
+        # Rules without conditions apply universally (e.g. annual influenza
+        # vaccine for all adults >= 65); otherwise require a condition match.
+        rule_conditions = {c.lower() for c in rule.get("conditions", [])}
+        conditions_matched = rule_conditions & expanded
+        if rule_conditions and not conditions_matched:
             continue
-        if not (rule_conditions & conditions_lower):
+        if not _passes_patient_gates(rule, patient_age, expanded, egfr):
             continue
 
-        min_age = rule.get("min_age", 0)
-        if patient_age < min_age:
+        recommended_drugs = {d.lower() for d in rule.get("drugs", [])}
+        # Trigger only if the patient is NOT already on a recommended drug
+        if recommended_drugs & normalized:
             continue
 
-        recommended_drugs = set(d.lower() for d in rule.get("drugs", []))
-        # Trigger only if patient is NOT already on the recommended drug
-        if not (recommended_drugs & normalized):
-            start_results.append({
-                "rule_id": rule.get("id", ""),
-                "category": rule.get("category", ""),
-                "recommended_drugs": list(recommended_drugs),
-                "conditions_matched": list(rule_conditions & conditions_lower),
-                "recommendation": rule.get("recommendation", ""),
-                "rationale": rule.get("rationale", ""),
-                "evidence": rule.get("evidence", ""),
-            })
+        start_results.append({
+            "id": rule.get("id", ""),
+            "section": rule.get("section", ""),
+            "category": rule.get("category", ""),
+            "criteria": rule.get("criteria", ""),
+            "recommended_drugs": sorted(recommended_drugs),
+            "conditions_matched": sorted(conditions_matched),
+            "rationale": rule.get("rationale", ""),
+            "recommendation": rule.get("recommendation") or rule.get("criteria", ""),
+        })
 
     return {"stopp": stopp_results, "start": start_results}
 

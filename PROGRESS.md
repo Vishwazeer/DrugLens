@@ -33,8 +33,16 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 ---
 
-## Phase 1 — Data layer + rules engines — ⏳
-Combination-rule schema (`combination_groups` / `min_matches` / `egfr_below` / `absent_drugs`), canonical alert schema, DDI dedupe + duplicate removal, eGFR gating, age gates, alias cleanup, engine test suite.
+## Phase 1 — Data layer + rules engines — ✅
+
+**What was built:**
+- **Data-schema upgrade** (all 3 JSON files): optional gating keys with AND semantics — `combination_groups` (every group must have ≥1 matched drug), `min_matches` (≥N distinct matches), `egfr_below` (fires only when eGFR known and below N), `absent_drugs` (STOPP: fires only when no protective co-prescription). Upgraded: Beers DDI-002…008/010 → groups, DDI-001 → min_matches 3 + real CNS drug list (replaces class-name placeholders AND the engine's hard-coded CNS block), DDI-009 → min_matches 2, ENDO-008 → egfr_below 45; STOPP A6/A8/A9/C3/C5/G2/K2 → groups, K1/L1 → min_matches 2, D9 → laxative absence gate, G1 → PPI absence gate, E1/E2/A1 → egfr_below 50/30/50; dead STOPP-Q1 deleted.
+- **DDI DB**: 4 reversed duplicate pairs removed (aspirin/warfarin, naproxen/warfarin, HCTZ/lithium, clopidogrel/omeprazole → 102 entries), sertraline+ibuprofen (SSRI+NSAID GI bleed, moderate) added.
+- **Engine rewrite** (`src/drug_interactions.py`): shared `_rule_matches` + `_passes_patient_gates` helpers; canonical alert schema (Beers: id/category/drug_class/matched_drugs/recommendation/rationale/severity/exceptions/quality_of_evidence; STOPP: id/section/category/criteria/matched_drugs/rationale/severity/recommendation; START: +recommended_drugs/conditions_matched); `check_interactions` dedupes (break per pair) and passes through evidence_level/source; whole-function age<65 gates; `CONDITION_SYNONYM_GROUPS`+`expand_conditions()` bridging UI labels ↔ rule vocabulary; alias cleanup (rivarelbaan typo gone, paracetamol added); deleted dead `drug_classes` path; `reset_caches()` test hook.
+- **Discovered & fixed during testing:** START-I1/I2 (universal vaccine rules with empty `conditions`) could never fire — engine now supports universal START rules.
+- **Tests:** 42 passing — conftest (network-blocked, cache isolation, FakeOpenAI factory), test_data_integrity, test_normalize, test_interactions, test_beers, test_stopp_start.
+
+**Verification evidence:** `pytest -q` → 42 passed. Engine probe of the 3 demo regimens: Case 1 → 0 interactions/0 Beers/0 STOPP (score 0, MINIMAL — was HIGH/10); Case 2 → 2 real interactions + 3 legit Beers + STOPP-F1 (score 10, MODERATE — was HIGH/27); Case 3 → 6 major interactions + 7 Beers + 6 STOPP (score 39, HIGH ✔).
 
 ## Phase 2 — Orchestrator, report, config, demo cases — ⏳
 TxGemma call fix, condition/eGFR propagation, risk calibration (HIGH ≥12 / MODERATE ≥5 / LOW ≥1), `CONDITION_OPTIONS`, corrected demo cases, `_SEVERITY_SCORE` high/low, config wiring, assertive smoke script.

@@ -519,13 +519,14 @@
     "id": "BEERS-DDI-001",
     "category": "Drug-Drug Interactions",
     "drug_class": "CNS-active drug combinations",
-    "drugs": ["opioids", "benzodiazepines", "antipsychotics", "antidepressants", "gabapentinoids", "nonbenzodiazepine hypnotics"],
+    "drugs": ["alprazolam", "lorazepam", "diazepam", "clonazepam", "zolpidem", "eszopiclone", "gabapentin", "pregabalin", "quetiapine", "olanzapine", "risperidone", "aripiprazole", "oxycodone", "hydrocodone", "tramadol", "amitriptyline", "nortriptyline", "doxepin", "diphenhydramine"],
     "recommendation": "Avoid",
     "rationale": "Concomitant use of ≥3 CNS-active drugs substantially increases the risk of falls, fractures, respiratory depression, over-sedation, delirium, and mortality in older adults. Risk is synergistic, not just additive.",
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "May be unavoidable in certain psychiatric conditions or end-of-life care; minimize number and dose."
+    "exceptions": "May be unavoidable in certain psychiatric conditions or end-of-life care; minimize number and dose.",
+    "min_matches": 3
   },
   {
     "id": "BEERS-DDI-002",
@@ -537,7 +538,8 @@
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "If combination cannot be avoided, use gastroprotection with PPI. Use lowest effective doses and shortest duration."
+    "exceptions": "If combination cannot be avoided, use gastroprotection with PPI. Use lowest effective doses and shortest duration.",
+    "combination_groups": [["prednisone", "prednisolone", "dexamethasone", "methylprednisolone", "hydrocortisone"], ["ibuprofen", "naproxen", "diclofenac"]]
   },
   {
     "id": "BEERS-DDI-003",
@@ -549,7 +551,8 @@
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "End-of-life/palliative care or when alternatives are not available; use lowest effective doses with close monitoring."
+    "exceptions": "End-of-life/palliative care or when alternatives are not available; use lowest effective doses with close monitoring.",
+    "combination_groups": [["morphine", "oxycodone", "hydrocodone", "fentanyl", "tramadol", "codeine"], ["diazepam", "lorazepam", "alprazolam", "clonazepam"]]
   },
   {
     "id": "BEERS-DDI-004",
@@ -561,7 +564,8 @@
     "severity": "high",
     "quality_of_evidence": "Moderate",
     "strength_of_recommendation": "Strong",
-    "exceptions": "May be needed for multimodal pain management; if combined, use lowest effective doses and monitor closely for respiratory depression."
+    "exceptions": "May be needed for multimodal pain management; if combined, use lowest effective doses and monitor closely for respiratory depression.",
+    "combination_groups": [["morphine", "oxycodone", "hydrocodone", "fentanyl", "tramadol"], ["gabapentin", "pregabalin"]]
   },
   {
     "id": "BEERS-DDI-005",
@@ -573,7 +577,8 @@
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "If all three are clinically necessary, monitor renal function and potassium closely (within 1 week of initiation and regularly thereafter). Avoid if possible."
+    "exceptions": "If all three are clinically necessary, monitor renal function and potassium closely (within 1 week of initiation and regularly thereafter). Avoid if possible.",
+    "combination_groups": [["lisinopril", "enalapril", "ramipril", "losartan", "valsartan"], ["spironolactone", "amiloride", "triamterene", "eplerenone", "furosemide", "hydrochlorothiazide", "bumetanide", "chlorthalidone", "indapamide"], ["ibuprofen", "naproxen", "diclofenac"]]
   },
   {
     "id": "BEERS-DDI-006",
@@ -585,7 +590,8 @@
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "If absolutely necessary, use celecoxib at lowest dose with PPI gastroprotection and closely monitor INR."
+    "exceptions": "If absolutely necessary, use celecoxib at lowest dose with PPI gastroprotection and closely monitor INR.",
+    "combination_groups": [["warfarin"], ["ibuprofen", "naproxen", "diclofenac", "piroxicam", "ketorolac", "meloxicam", "celecoxib"]]
   },
   {
     "id": "BEERS-DDI-007",
@@ -597,7 +603,8 @@
     "severity": "high",
     "quality_of_evidence": "Moderate",
     "strength_of_recommendation": "Strong",
-    "exceptions": "If combination cannot be avoided, reduce lithium dose and monitor lithium levels closely (within 1 week of ACE inhibitor initiation and regularly)."
+    "exceptions": "If combination cannot be avoided, reduce lithium dose and monitor lithium levels closely (within 1 week of ACE inhibitor initiation and regularly).",
+    "combination_groups": [["lithium"], ["lisinopril", "enalapril", "ramipril", "captopril", "benazepril", "perindopril"]]
   },
   {
     "id": "BEERS-DDI-008",
@@ -609,7 +616,8 @@
     "severity": "high",
     "quality_of_evidence": "Moderate",
     "strength_of_recommendation": "Strong",
-    "exceptions": "Spironolactone/eplerenone at low doses in HFrEF is guideline-directed therapy. Monitor potassium and renal function within 1 week and regularly."
+    "exceptions": "Spironolactone/eplerenone at low doses in HFrEF is guideline-directed therapy. Monitor potassium and renal function within 1 week and regularly.",
+    "combination_groups": [["lisinopril", "enalapril", "ramipril"], ["spironolactone", "amiloride", "triamterene", "eplerenone"]]
   },
   {
     "id": "BEERS-DDI-009",
@@ -621,7 +629,8 @@
     "severity": "high",
     "quality_of_evidence": "Moderate",
     "strength_of_recommendation": "Strong",
-    "exceptions": "Minimize total anticholinergic burden. Substitute non-anticholinergic alternatives whenever possible."
+    "exceptions": "Minimize total anticholinergic burden. Substitute non-anticholinergic alternatives whenever possible.",
+    "min_matches": 2
   },
   {
     "id": "BEERS-DDI-010",
@@ -633,7 +642,8 @@
     "severity": "high",
     "quality_of_evidence": "High",
     "strength_of_recommendation": "Strong",
-    "exceptions": "None. If anticoagulation is necessary, discontinue NSAID and/or corticosteroid. Use PPI if corticosteroid is continued."
+    "exceptions": "None. If anticoagulation is necessary, discontinue NSAID and/or corticosteroid. Use PPI if corticosteroid is continued.",
+    "combination_groups": [["warfarin"], ["ibuprofen", "naproxen"], ["prednisone", "dexamethasone"]]
   },
   {
     "id": "BEERS-MISC-001",
@@ -669,7 +679,8 @@
     "severity": "moderate",
     "quality_of_evidence": "Moderate",
     "strength_of_recommendation": "Strong",
-    "exceptions": "Safe to use at full dose when eGFR ≥45 mL/min/1.73m². Remains first-line for type 2 diabetes with adequate renal function."
+    "exceptions": "Safe to use at full dose when eGFR ≥45 mL/min/1.73m². Remains first-line for type 2 diabetes with adequate renal function.",
+    "egfr_below": 45
   },
   {
     "id": "BEERS-CNS-010",
