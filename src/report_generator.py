@@ -1,28 +1,22 @@
 """Risk report generator using Gemma 4 via Fireworks, with rule-based fallback."""
 
 import json
-import os
 import re
-from typing import Optional
 
 from openai import OpenAI
 
-FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY", "")
-FIREWORKS_BASE_URL = os.getenv(
-    "FIREWORKS_BASE_URL", "https://api.fireworks.ai/inference/v1"
-)
-GEMMA_MODEL = os.getenv(
-    "GEMMA_MODEL", "accounts/fireworks/models/gemma-4-31b-it"
-)
+from src import config
 
-_SEVERITY_SCORE = {"major": 30, "moderate": 15, "minor": 5, "unknown": 10}
+# Covers both vocabularies: DDI severities (major/moderate/minor) and
+# Beers/STOPP alert severities (high/moderate/low).
+_SEVERITY_SCORE = {"major": 30, "high": 25, "moderate": 15, "minor": 5, "low": 5, "unknown": 10}
 
 
 def _fireworks_client() -> OpenAI:
-    return OpenAI(base_url=FIREWORKS_BASE_URL, api_key=FIREWORKS_API_KEY)
+    return OpenAI(base_url=config.FIREWORKS_BASE_URL, api_key=config.FIREWORKS_API_KEY)
 
 
-def _parse_json_response(raw: str) -> Optional[dict]:
+def _parse_json_response(raw: str) -> dict | None:
     """Best-effort JSON extraction from LLM output."""
     raw = raw.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -92,7 +86,7 @@ def _build_context_block(
     if beers_alerts:
         ba_lines = []
         for ba in beers_alerts:
-            drugs = ", ".join(ba.get("drugs_matched", []))
+            drugs = ", ".join(ba.get("matched_drugs", []))
             ba_lines.append(
                 f"- {drugs}: {ba.get('recommendation', '')} "
                 f"(Rationale: {ba.get('rationale', '')})"
@@ -147,15 +141,15 @@ def _fallback_report(
     for ba in beers_alerts:
         sev = ba.get("severity", "moderate")
         score += _SEVERITY_SCORE.get(sev, 10)
-        drugs = ", ".join(ba.get("drugs_matched", []))
+        drugs = ", ".join(ba.get("matched_drugs", []))
         key_alerts.append(f"Beers Criteria: {drugs} — {ba.get('recommendation', '')}")
 
     stopp_rules = stopp_start.get("stopp", [])
     start_rules = stopp_start.get("start", [])
 
     for rule in stopp_rules:
-        score += 15
-        drugs = ", ".join(rule.get("drugs_matched", []))
+        score += _SEVERITY_SCORE.get(rule.get("severity", "moderate"), 15)
+        drugs = ", ".join(rule.get("matched_drugs", []))
         key_alerts.append(f"STOPP: {drugs} — {rule.get('recommendation', '')}")
 
     for rule in start_rules:
@@ -236,13 +230,13 @@ def generate_risk_report(
         "Respond ONLY with the JSON object, no markdown fences, no extra text."
     )
 
-    if not FIREWORKS_API_KEY:
+    if not config.FIREWORKS_API_KEY:
         return _fallback_report(interactions, beers_alerts, stopp_start)
 
     try:
         client = _fireworks_client()
         response = client.chat.completions.create(
-            model=GEMMA_MODEL,
+            model=config.GEMMA_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": context},
@@ -287,7 +281,7 @@ def generate_patient_summary(
 
         lines = [
             f"You are currently taking {len(med_names)} medication(s): {', '.join(med_names)}.",
-            f"",
+            "",
             f"Your overall medication risk level is {risk.upper()} (score: {score}/100).",
         ]
 
@@ -311,7 +305,7 @@ def generate_patient_summary(
         )
         return "\n".join(lines)
 
-    if not FIREWORKS_API_KEY:
+    if not config.FIREWORKS_API_KEY:
         return _template_summary()
 
     context = (
@@ -322,7 +316,7 @@ def generate_patient_summary(
     try:
         client = _fireworks_client()
         response = client.chat.completions.create(
-            model=GEMMA_MODEL,
+            model=config.GEMMA_MODEL,
             messages=[
                 {
                     "role": "system",

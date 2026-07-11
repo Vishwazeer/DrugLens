@@ -1,24 +1,20 @@
 """TxGemma-based drug-drug interaction predictor."""
 
 import json
-import os
 import re
 from itertools import combinations
-from typing import Optional
 
 from openai import OpenAI
 
+from src import config
 from src.drug_interactions import get_drug_smiles, normalize_drug_name
-
-TXGEMMA_BASE_URL = os.getenv("TXGEMMA_BASE_URL", "http://localhost:8002/v1")
-TXGEMMA_MODEL = os.getenv("TXGEMMA_MODEL", "google/txgemma-2b-it")
 
 
 def _txgemma_client() -> OpenAI:
-    return OpenAI(base_url=TXGEMMA_BASE_URL, api_key="not-needed")
+    return OpenAI(base_url=config.TXGEMMA_BASE_URL, api_key="not-needed")
 
 
-def _parse_json_response(raw: str) -> Optional[dict]:
+def _parse_json_response(raw: str) -> dict | None:
     """Best-effort JSON extraction from LLM response."""
     raw = raw.strip()
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
@@ -41,7 +37,7 @@ def predict_ddi(
     drug_b: str,
     smiles_a: str | None = None,
     smiles_b: str | None = None,
-) -> Optional[dict]:
+) -> dict | None:
     """Use TxGemma to predict drug-drug interaction between two drugs.
 
     If SMILES not provided, looks them up via PubChem.
@@ -76,7 +72,7 @@ def predict_ddi(
     try:
         client = _txgemma_client()
         response = client.chat.completions.create(
-            model=TXGEMMA_MODEL,
+            model=config.TXGEMMA_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -113,7 +109,7 @@ def predict_ddi(
 
 def predict_toxicity(
     drug_name: str, smiles: str | None = None
-) -> Optional[dict]:
+) -> dict | None:
     """Use TxGemma to predict toxicity risk for a drug."""
     normalized = normalize_drug_name(drug_name)
 
@@ -135,7 +131,7 @@ def predict_toxicity(
     try:
         client = _txgemma_client()
         response = client.chat.completions.create(
-            model=TXGEMMA_MODEL,
+            model=config.TXGEMMA_MODEL,
             messages=[
                 {
                     "role": "system",

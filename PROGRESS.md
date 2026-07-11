@@ -44,8 +44,20 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 **Verification evidence:** `pytest -q` → 42 passed. Engine probe of the 3 demo regimens: Case 1 → 0 interactions/0 Beers/0 STOPP (score 0, MINIMAL — was HIGH/10); Case 2 → 2 real interactions + 3 legit Beers + STOPP-F1 (score 10, MODERATE — was HIGH/27); Case 3 → 6 major interactions + 7 Beers + 6 STOPP (score 39, HIGH ✔).
 
-## Phase 2 — Orchestrator, report, config, demo cases — ⏳
-TxGemma call fix, condition/eGFR propagation, risk calibration (HIGH ≥12 / MODERATE ≥5 / LOW ≥1), `CONDITION_OPTIONS`, corrected demo cases, `_SEVERITY_SCORE` high/low, config wiring, assertive smoke script.
+## Phase 2 — Orchestrator, report, config, demo cases — ✅
+
+**What was built:**
+- **TxGemma fixed (D1):** `analyzer.py` now calls `predict_unknown_interactions(drug_names, result["interactions"])` — Model 2 of the pipeline runs for the first time; regression-tested with a spy.
+- **Condition/eGFR propagation (D11):** conditions extracted from pasted notes are merged (union, explicit args win) into `patient_info` and passed to BOTH rule engines along with merged eGFR; extracted eGFR fills in when the argument is absent.
+- **Risk calibration (D3/D14):** weights interactions major=3/moderate=2/minor=1, Beers/STOPP high=2 else 1, predicted=1, START=0; thresholds HIGH ≥12 / MODERATE ≥5 / LOW ≥1 / else MINIMAL. Rule-based scale drives the top card; the report's 0-100 scale stays inside the AI Report tab.
+- **Demo cases (D2/D18):** conditions now use exact UI labels (shared `CONDITION_OPTIONS` constant in analyzer — the multiselect crash is structurally impossible, enforced by test); Case 1 description now advertises the eGFR-25 live renal demo; Case 2 description corrected (sertraline+ibuprofen instead of the impossible triple whammy claim); Case 1 expected_risk = MINIMAL.
+- **Report generator (D12):** `_SEVERITY_SCORE` covers high(25)/low(5) — high-severity Beers alerts no longer score below moderate ones; canonical `matched_drugs`/`recommended_drugs` keys consumed; STOPP scoring severity-weighted.
+- **Config wiring (D15):** `src/config.py` is the single settings source; med_parser/ddi_predictor/report_generator read endpoints & keys via `config.X` at call time; USE_* flags default false/false/true (CPU-first).
+- **Parser bugs (D11 + new):** word-boundary condition keywords ("pe" no longer matches "type"/"pepcid"); **new bug found by tests:** frequency alias "od" matched inside "oxycodone" (→ wrong "once daily") — freq/route regexes now use alphanumeric look-arounds.
+- **Scripts (D23):** `smoke_check.py` asserts risk bands + zero pipeline errors with a real exit code; `fireworks_live_check.py` is a full preflight (key check → live /models id verification → end-to-end report).
+- **Tests:** +31 (test_analyzer, test_med_parser, test_report, test_demo_cases) → 73 total.
+
+**Verification evidence:** `pytest -q` → 73 passed · `ruff check .` → clean · `scripts\smoke_check.py` → exit 0 (Case 1 MINIMAL score 0 / Case 2 MODERATE score 10 / Case 3 HIGH score 39, no pipeline errors).
 
 ## Phase 3 — UI alignment & demo polish — ⏳
 Canonical keys in all tabs, patient summary display, severity styling, config-driven toggles, "AI risk score N/100" labeling, manual click-through of all 3 demo cases.

@@ -1,14 +1,11 @@
 """Medication parser: MedGemma LLM with regex fallback."""
 
 import json
-import os
 import re
-from typing import Optional
 
 from openai import OpenAI
 
-MEDGEMMA_BASE_URL = os.getenv("MEDGEMMA_BASE_URL", "http://localhost:8001/v1")
-MEDGEMMA_MODEL = os.getenv("MEDGEMMA_MODEL", "google/medgemma-4b-it")
+from src import config
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -68,9 +65,16 @@ _FREQ_MAP: dict[str, str] = {
     "p.r.n.": "as needed",
 }
 
-# Build a single regex from frequency keys, longest first to avoid partial matches
+# Build a single regex from frequency keys, longest first to avoid partial
+# matches. Look-arounds (not \b — the dotted aliases like "q.d." break \b)
+# stop short aliases such as "od"/"bid" matching inside drug names
+# ("oxycodone", "carbidopa").
 _freq_keys_sorted = sorted(_FREQ_MAP.keys(), key=len, reverse=True)
-_FREQ_PAT = "(" + "|".join(re.escape(k) for k in _freq_keys_sorted) + ")"
+_FREQ_PAT = (
+    r"(?<![A-Za-z0-9])("
+    + "|".join(re.escape(k) for k in _freq_keys_sorted)
+    + r")(?![A-Za-z0-9])"
+)
 
 # Route
 _ROUTE_MAP: dict[str, str] = {
@@ -104,12 +108,16 @@ _ROUTE_MAP: dict[str, str] = {
 }
 
 _route_keys_sorted = sorted(_ROUTE_MAP.keys(), key=len, reverse=True)
-_ROUTE_PAT = r"\b(" + "|".join(re.escape(k) for k in _route_keys_sorted) + r")\b"
+_ROUTE_PAT = (
+    r"(?<![A-Za-z0-9])("
+    + "|".join(re.escape(k) for k in _route_keys_sorted)
+    + r")(?![A-Za-z0-9])"
+)
 
 
 def parse_medications_llm(free_text: str) -> list[dict]:
     """Use MedGemma to parse free-text medication list into structured data."""
-    client = OpenAI(base_url=MEDGEMMA_BASE_URL, api_key="not-needed")
+    client = OpenAI(base_url=config.MEDGEMMA_BASE_URL, api_key="not-needed")
 
     system_prompt = (
         "You are a clinical pharmacist. Extract every medication from the text below.\n"
@@ -122,7 +130,7 @@ def parse_medications_llm(free_text: str) -> list[dict]:
     )
 
     response = client.chat.completions.create(
-        model=MEDGEMMA_MODEL,
+        model=config.MEDGEMMA_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": free_text},
@@ -282,7 +290,9 @@ def extract_patient_info(free_text: str) -> dict:
     ]
     text_lower = free_text.lower()
     for cond in condition_keywords:
-        if cond in text_lower:
+        # Word-boundary match so short keywords like "pe" don't fire inside
+        # "type", "pepcid", "percocet", etc.
+        if re.search(rf"\b{re.escape(cond)}\b", text_lower):
             info["conditions"].append(cond)
 
     # Allergies: look for "allergic to X" or "allergies: X, Y"

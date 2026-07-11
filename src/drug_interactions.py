@@ -19,7 +19,6 @@ present on a rule must pass for it to fire):
 import json
 from itertools import combinations
 from pathlib import Path
-from typing import Optional
 
 import requests
 
@@ -29,7 +28,7 @@ DATA_DIR = Path(__file__).parent.parent / "data"
 # Module-level caches
 # ---------------------------------------------------------------------------
 _interaction_db: list[dict] | None = None
-_smiles_cache: dict[str, Optional[str]] = {}
+_smiles_cache: dict[str, str | None] = {}
 
 
 def reset_caches() -> None:
@@ -191,7 +190,7 @@ def normalize_drug_name(name: str) -> str:
     return DRUG_ALIASES.get(cleaned, cleaned)
 
 
-def rxnorm_lookup(drug_name: str) -> Optional[dict]:
+def rxnorm_lookup(drug_name: str) -> dict | None:
     """Query RxNorm API to get RxCUI and standardized name."""
     normalized = normalize_drug_name(drug_name)
     url = "https://rxnav.nlm.nih.gov/REST/rxcui.json"
@@ -427,7 +426,7 @@ def check_stopp_start(
     return {"stopp": stopp_results, "start": start_results}
 
 
-def get_drug_smiles(drug_name: str) -> Optional[str]:
+def get_drug_smiles(drug_name: str) -> str | None:
     """Look up SMILES string for a drug via PubChem API. Results cached."""
     normalized = normalize_drug_name(drug_name)
     if normalized in _smiles_cache:

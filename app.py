@@ -1,11 +1,8 @@
-import streamlit as st
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-import json
-import os
 import sys
 from pathlib import Path
+
+import plotly.graph_objects as go
+import streamlit as st
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,8 +10,9 @@ load_dotenv()
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.analyzer import analyze_medications, get_demo_cases
-from src.drug_interactions import normalize_drug_name
+# Imports must follow load_dotenv() so src.config resolves the populated env
+from src.analyzer import analyze_medications, get_demo_cases  # noqa: E402
+from src.drug_interactions import normalize_drug_name  # noqa: E402
 
 # --- Page Config ---
 st.set_page_config(
@@ -205,38 +203,38 @@ st.markdown("""
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("### ⚙️ Configuration")
-    
-    use_llm = st.toggle("Use MedGemma Parser", value=False, 
+
+    use_llm = st.toggle("Use MedGemma Parser", value=False,
                          help="Parse medications with MedGemma AI. Disable for regex-only parsing.")
     use_txgemma = st.toggle("Use TxGemma Predictions", value=False,
                             help="Predict unknown drug interactions with TxGemma.")
     use_gemma4 = st.toggle("Use Gemma 4 Reports", value=True,
                            help="Generate AI-powered reports with Gemma 4 via Fireworks AI.")
-    
+
     st.markdown("---")
     st.markdown("### 🧪 Demo Cases")
     st.markdown("Pre-loaded cases for testing:")
-    
+
     demo_cases = get_demo_cases()
     selected_demo = st.selectbox(
         "Load a demo case",
         options=["— Select —"] + [c["name"] for c in demo_cases],
         index=0
     )
-    
+
     if selected_demo != "— Select —":
         case = next(c for c in demo_cases if c["name"] == selected_demo)
         st.info(case["description"])
-    
+
     st.markdown("---")
     st.markdown("### 📊 How It Works")
     st.markdown("""
     1. **Parse** — Extract medications from text
     2. **Check** — Drug interactions, Beers, STOPP/START
-    3. **Predict** — AI-powered DDI prediction  
+    3. **Predict** — AI-powered DDI prediction
     4. **Report** — Risk assessment & recommendations
     """)
-    
+
     st.markdown("---")
     st.markdown("""
     <div class="powered-by">
@@ -251,13 +249,13 @@ col_input, col_patient = st.columns([3, 2])
 
 with col_input:
     st.markdown("### 📋 Medication Input")
-    
+
     # Pre-fill from demo case if selected
     default_meds = ""
     if selected_demo != "— Select —":
         case = next(c for c in demo_cases if c["name"] == selected_demo)
         default_meds = case["medication_text"]
-    
+
     medication_text = st.text_area(
         "Enter medications (free text or one per line)",
         value=default_meds,
@@ -267,16 +265,16 @@ with col_input:
 
 with col_patient:
     st.markdown("### 👤 Patient Information")
-    
+
     default_age = 75
     default_conditions = []
     if selected_demo != "— Select —":
         case = next(c for c in demo_cases if c["name"] == selected_demo)
         default_age = case["patient_age"]
         default_conditions = case.get("conditions", [])
-    
+
     patient_age = st.number_input("Age", min_value=18, max_value=120, value=default_age)
-    
+
     patient_conditions = st.multiselect(
         "Conditions",
         options=[
@@ -288,9 +286,9 @@ with col_patient:
         ],
         default=default_conditions
     )
-    
+
     patient_egfr = st.number_input(
-        "eGFR (mL/min/1.73m²)", 
+        "eGFR (mL/min/1.73m²)",
         min_value=5, max_value=150, value=60,
         help="Estimated glomerular filtration rate. Normal: >90, Mild: 60-89, Moderate: 30-59, Severe: <30"
     )
@@ -310,7 +308,7 @@ if analyze_clicked and medication_text.strip():
             use_txgemma=use_txgemma,
             use_gemma4=use_gemma4
         )
-    
+
     # Store results in session state
     st.session_state["results"] = results
     st.session_state["medication_text"] = medication_text
@@ -322,9 +320,9 @@ elif analyze_clicked:
 # --- Results Display ---
 if "results" in st.session_state:
     results = st.session_state["results"]
-    
+
     st.markdown("---")
-    
+
     # --- Risk Overview ---
     risk_level = results.get("risk_level", "UNKNOWN")
     risk_score = results.get("risk_score", 0)
@@ -335,9 +333,9 @@ if "results" in st.session_state:
         "MINIMAL": ("#06b6d4", "risk-minimal"),
     }
     color, css_class = risk_colors.get(risk_level, ("#9ca3af", "risk-minimal"))
-    
+
     col1, col2, col3, col4 = st.columns(4)
-    
+
     with col1:
         st.markdown(f"""
         <div class="risk-card {css_class}">
@@ -345,7 +343,7 @@ if "results" in st.session_state:
             <p class="risk-label" style="color: {color};">Overall Risk</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col2:
         n_meds = len(results.get("parsed_medications", []))
         st.markdown(f"""
@@ -354,7 +352,7 @@ if "results" in st.session_state:
             <p class="metric-label">Medications</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col3:
         n_interactions = len(results.get("interactions", []))
         st.markdown(f"""
@@ -363,7 +361,7 @@ if "results" in st.session_state:
             <p class="metric-label">Interactions Found</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     with col4:
         n_alerts = len(results.get("beers_alerts", [])) + len(results.get("stopp_start", {}).get("stopp", []))
         st.markdown(f"""
@@ -372,19 +370,19 @@ if "results" in st.session_state:
             <p class="metric-label">Criteria Alerts</p>
         </div>
         """, unsafe_allow_html=True)
-    
+
     st.markdown("")
-    
+
     # --- Tabs for detailed results ---
     tab_interactions, tab_beers, tab_stopp, tab_report, tab_raw = st.tabs([
         "⚠️ Drug Interactions", "📜 Beers Criteria", "🔄 STOPP/START", "📄 AI Report", "🔧 Raw Data"
     ])
-    
+
     # --- Drug Interactions Tab ---
     with tab_interactions:
         interactions = results.get("interactions", [])
         predicted = results.get("predicted_interactions", [])
-        
+
         if interactions:
             st.markdown("#### Database-Confirmed Interactions")
             for ix in interactions:
@@ -394,9 +392,9 @@ if "results" in st.session_state:
                     css = "alert-high"
                 elif sev == "minor":
                     css = "alert-low"
-                
+
                 emoji = {"major": "🔴", "moderate": "🟡", "minor": "🟢"}.get(sev, "🟡")
-                
+
                 st.markdown(f"""
                 <div class="alert-card {css}">
                     <div class="alert-title">{emoji} {ix.get('drug_a', '?')} ↔ {ix.get('drug_b', '?')} — {sev.upper()}</div>
@@ -409,7 +407,7 @@ if "results" in st.session_state:
                 """, unsafe_allow_html=True)
         else:
             st.success("No known drug interactions found in database.")
-        
+
         if predicted:
             st.markdown("#### 🧬 TxGemma Predicted Interactions")
             for px_item in predicted:
@@ -420,14 +418,14 @@ if "results" in st.session_state:
                     <b>Confidence:</b> {px_item.get('confidence', 'N/A')}</div>
                 </div>
                 """, unsafe_allow_html=True)
-        
+
         # Interaction heatmap
         if interactions and len(results.get("parsed_medications", [])) >= 2:
             st.markdown("#### Interaction Matrix")
             meds = [m.get("name", m) if isinstance(m, dict) else str(m) for m in results["parsed_medications"]]
             n = len(meds)
             matrix = [[0]*n for _ in range(n)]
-            
+
             for ix in interactions:
                 da = normalize_drug_name(ix.get("drug_a", ""))
                 db = normalize_drug_name(ix.get("drug_b", ""))
@@ -439,7 +437,7 @@ if "results" in st.session_state:
                             sev_score = {"major": 3, "moderate": 2, "minor": 1}.get(ix.get("severity", "moderate"), 2)
                             matrix[i][j] = sev_score
                             matrix[j][i] = sev_score
-            
+
             fig = go.Figure(data=go.Heatmap(
                 z=matrix,
                 x=meds,
@@ -466,7 +464,7 @@ if "results" in st.session_state:
                 font=dict(family="Inter")
             )
             st.plotly_chart(fig, use_container_width=True)
-    
+
     # --- Beers Criteria Tab ---
     with tab_beers:
         beers = results.get("beers_alerts", [])
@@ -476,7 +474,7 @@ if "results" in st.session_state:
                 sev = alert.get("severity", "moderate")
                 css = f"alert-{sev}" if sev in ("high", "moderate", "low") else "alert-moderate"
                 emoji = {"high": "🔴", "moderate": "🟡", "low": "🟢"}.get(sev, "🟡")
-                
+
                 rec = alert.get("recommendation", "Review")
                 st.markdown(f"""
                 <div class="alert-card {css}">
@@ -491,12 +489,12 @@ if "results" in st.session_state:
                 """, unsafe_allow_html=True)
         else:
             st.success("No Beers Criteria alerts triggered.")
-    
+
     # --- STOPP/START Tab ---
     with tab_stopp:
         stopp = results.get("stopp_start", {}).get("stopp", [])
         start = results.get("stopp_start", {}).get("start", [])
-        
+
         if stopp:
             st.markdown(f"#### 🛑 {len(stopp)} STOPP Alert(s) — Consider Stopping")
             for rule in stopp:
@@ -512,7 +510,7 @@ if "results" in st.session_state:
                 """, unsafe_allow_html=True)
         else:
             st.success("No STOPP criteria triggered.")
-        
+
         if start:
             st.markdown(f"#### ✅ {len(start)} START Suggestion(s) — Consider Starting")
             for rule in start:
@@ -528,7 +526,7 @@ if "results" in st.session_state:
                 """, unsafe_allow_html=True)
         else:
             st.info("No START suggestions applicable.")
-    
+
     # --- AI Report Tab ---
     with tab_report:
         report = results.get("risk_report", {})
@@ -536,11 +534,11 @@ if "results" in st.session_state:
             if report.get("summary"):
                 st.markdown("#### 📝 Summary")
                 st.info(report["summary"])
-            
+
             if report.get("clinical_summary"):
                 st.markdown("#### 🏥 Clinical Summary")
                 st.markdown(report["clinical_summary"])
-            
+
             if report.get("deprescribing_suggestions"):
                 st.markdown("#### 💊 Deprescribing Suggestions")
                 for sug in report["deprescribing_suggestions"]:
@@ -554,29 +552,29 @@ if "results" in st.session_state:
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-            
+
             if report.get("recommendations"):
                 st.markdown("#### ✅ Recommendations")
                 for rec in report["recommendations"]:
                     st.markdown(f"- {rec}")
-            
+
             if report.get("patient_summary"):
                 st.markdown("#### 👤 Patient-Friendly Summary")
                 st.success(report["patient_summary"])
         else:
             st.info("Enable Gemma 4 in settings for AI-powered reports, or run analysis first.")
-    
+
     # --- Raw Data Tab ---
     with tab_raw:
         st.markdown("#### Parsed Medications")
         if results.get("parsed_medications"):
             st.json(results["parsed_medications"])
-        
+
         st.markdown("#### Full Analysis Results")
         # Remove large nested objects for display
         display_results = {k: v for k, v in results.items() if k != "risk_report"}
         st.json(display_results)
-    
+
     # --- Errors ---
     if results.get("errors"):
         st.markdown("---")

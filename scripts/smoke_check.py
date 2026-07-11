@@ -1,47 +1,81 @@
-"""Quick smoke test for DrugLens pipeline."""
+"""Offline smoke check: the three judge demo cases must hit their risk bands.
+
+Runs the full pipeline with all LLMs disabled (pure rules engine) and exits
+non-zero if any case lands outside its expected outcome.
+
+Usage: python scripts/smoke_check.py
+"""
+
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path
 
-from src.analyzer import analyze_medications, get_demo_cases
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-cases = get_demo_cases()
-print(f"Demo cases loaded: {len(cases)}")
+from src.analyzer import analyze_medications, get_demo_cases  # noqa: E402
 
-for case in cases:
-    print(f"\n{'='*60}")
-    print(f"CASE: {case['name']}")
-    print(f"Patient: {case['patient_age']}yo, {', '.join(case.get('conditions', []))}")
-    print(f"Meds: {case['medication_text'][:80]}...")
-    
-    r = analyze_medications(
-        medication_text=case["medication_text"],
-        patient_age=case["patient_age"],
-        patient_conditions=case.get("conditions", []),
-        use_llm_parser=False,
-        use_txgemma=False,
-        use_gemma4=False,
-    )
-    
-    print(f"\nRisk Level: {r['risk_level']} (score: {r.get('risk_score', '?')})")
-    print(f"Medications parsed: {len(r.get('parsed_medications', []))}")
-    print(f"Interactions found: {len(r.get('interactions', []))}")
-    print(f"Beers alerts: {len(r.get('beers_alerts', []))}")
-    stopp = r.get("stopp_start", {})
-    print(f"STOPP alerts: {len(stopp.get('stopp', []))}")
-    print(f"START suggestions: {len(stopp.get('start', []))}")
-    
-    if r.get("interactions"):
-        print("\nInteractions:")
-        for ix in r["interactions"][:5]:
-            print(f"  {ix['drug_a']} <-> {ix['drug_b']}: {ix['severity']}")
-    
-    if r.get("beers_alerts"):
-        print("\nBeers Alerts:")
-        for alert in r["beers_alerts"][:3]:
-            print(f"  {alert.get('drug_class', '?')}: {alert.get('recommendation', '?')}")
-    
-    if r.get("errors"):
-        print(f"\nErrors: {r['errors']}")
+# Case 1 may legitimately be MINIMAL or LOW; the others are exact.
+ACCEPTED_LEVELS: dict[str, set[str]] = {
+    "MINIMAL": {"MINIMAL", "LOW"},
+    "LOW": {"MINIMAL", "LOW"},
+    "MODERATE": {"MODERATE"},
+    "HIGH": {"HIGH"},
+}
 
-print(f"\n{'='*60}")
-print("ALL TESTS PASSED" if all(True for _ in cases) else "FAILURES")
+
+def main() -> int:
+    cases = get_demo_cases()
+    print(f"Demo cases loaded: {len(cases)}")
+    failures: list[str] = []
+
+    for case in cases:
+        print(f"\n{'=' * 60}")
+        print(f"CASE: {case['name']}")
+        print(f"Patient: {case['patient_age']}yo, {', '.join(case.get('conditions', []))}")
+
+        result = analyze_medications(
+            medication_text=case["medication_text"],
+            patient_age=case["patient_age"],
+            patient_conditions=case.get("conditions", []),
+            patient_egfr=60.0,
+            use_llm_parser=False,
+            use_txgemma=False,
+            use_gemma4=False,
+        )
+
+        level = result["risk_level"]
+        expected = case["expected_risk"]
+        stopp_start = result.get("stopp_start", {})
+        print(f"Risk Level: {level} (score: {result.get('risk_score', '?')}), "
+              f"expected: {expected}")
+        print(f"Medications parsed: {len(result.get('parsed_medications', []))}")
+        print(f"Interactions: {len(result.get('interactions', []))} | "
+              f"Beers: {len(result.get('beers_alerts', []))} | "
+              f"STOPP: {len(stopp_start.get('stopp', []))} | "
+              f"START: {len(stopp_start.get('start', []))}")
+
+        for ix in result.get("interactions", []):
+            print(f"  interaction: {ix['drug_a']} <-> {ix['drug_b']} [{ix['severity']}]")
+        for alert in result.get("beers_alerts", []):
+            print(f"  beers: [{alert['id']}] {alert['drug_class']} -> {alert['recommendation']}")
+        for rule in stopp_start.get("stopp", []):
+            print(f"  stopp: [{rule['id']}] {', '.join(rule['matched_drugs'])}")
+
+        if result.get("errors"):
+            failures.append(f"{case['name']}: pipeline errors {result['errors']}")
+        if level not in ACCEPTED_LEVELS.get(expected, {expected}):
+            failures.append(
+                f"{case['name']}: risk level {level} not in accepted band for {expected}"
+            )
+
+    print(f"\n{'=' * 60}")
+    if failures:
+        print("SMOKE CHECK FAILED:")
+        for f in failures:
+            print(f"  - {f}")
+        return 1
+    print("SMOKE CHECK PASSED: all demo cases in expected risk bands, no pipeline errors")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
