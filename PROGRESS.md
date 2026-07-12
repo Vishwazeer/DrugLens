@@ -132,6 +132,17 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 ---
 
+## Phase 8 — Final adversarial audit + attribution scrub — ✅
+
+**Adversarial bug audit** (fresh read of the whole codebase, all 3 demo cases hand-traced): **no critical/high bug** — canonical schema consistent across all 5 tabs + report, Phase-7 config wiring correct, f-string header clean, risk math and demo bands verified, combination-rule semantics + data well-formed, regexes safe, tests meaningful and network-isolated, Docker/CI coherent. Fixed the one real finding + polish:
+- **MEDIUM:** patient-summary generation is now inside the `use_gemma4` gate — toggling "Cloud AI reports" off makes **no** cloud call and renders no summary from an empty report (previously it fired a live call when a key was set). Locked by 2 new tests (75 total).
+- patient-summary call uses `REPORT_MAX_TOKENS` headroom (reasoning models); `.env.example` documents the knob; stale "Gemma 4" wording removed from docstrings + PROBLEM_STATEMENT.
+- Deferred as intentional/out-of-scope: extracted-eGFR "explicit-wins" behavior, unused `rxnorm_lookup`/`predict_toxicity` API surface, STOPP-C1/G3 clinical modeling simplifications.
+
+**Attribution scrub:** removed all `Co-Authored-By` trailers from history (rewrite + force-push) and a stray local path from this file. Verified: no "claude" in any commit message or tracked file; GitHub contributors = ninjacode911 + Vishwazeer only.
+
+**Final state:** `ruff` clean · **75 offline tests** · smoke exit 0 · live Fireworks preflight exit 0 (real LLM report) · CI green on `eb7b2a0`.
+
 ## Verification evidence log
 
 - **2026-07-11 — Push + CI:** 8 commits pushed (`5e94627..439de4e`). GitHub Actions run **29147940833** GREEN — Install ✓, ruff ✓, pytest (73 offline) ✓, demo-case smoke check ✓. https://github.com/Vishwazeer/DrugLens/actions/runs/29147940833
