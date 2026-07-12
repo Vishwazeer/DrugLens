@@ -98,6 +98,7 @@ async def stream_clinical_narrative(
 
     Yields raw text chunks as they arrive from the API (SSE-style).
     Falls back to a pre-built summary if the API is unavailable.
+    Prioritizes Gemma models, falling back to other models on failure.
     """
     if not config.FIREWORKS_API_KEY:
         yield "AI narrative unavailable: no API key configured. The deterministic analysis above is complete."
@@ -105,27 +106,56 @@ async def stream_clinical_narrative(
 
     system_prompt, user_prompt = _build_stream_prompt(analysis_result)
 
-    try:
-        client = _fireworks_client()
-        stream = client.chat.completions.create(
-            model=config.REPORT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.35,
-            # Headroom so reasoning models don't exhaust the budget on hidden
-            # reasoning before the narrative streams.
-            max_tokens=config.REPORT_MAX_TOKENS,
-            stream=True,
-        )
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                yield delta
-    except Exception as e:
-        logger.warning("Streaming LLM call failed: %s", e)
-        yield f"\n\n[AI narrative generation encountered an error: {e}]"
+    models_to_try = [
+        "accounts/fireworks/models/gemma-4-31b-it",
+        "accounts/fireworks/models/gemma-2-9b-it",
+        config.REPORT_MODEL
+    ]
+    # Remove duplicates preserving order
+    seen = set()
+    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
+
+    client = _fireworks_client()
+    stream = None
+    first_chunk = None
+    last_error = None
+
+    for model_id in models_to_try:
+        try:
+            logger.info(f"Attempting clinical narrative stream with model: {model_id}")
+            stream = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.35,
+                max_tokens=config.REPORT_MAX_TOKENS,
+                stream=True,
+            )
+            # Try to fetch the first chunk to ensure the model exists/is active
+            first_chunk = next(stream)
+            logger.info(f"Successfully started stream using model: {model_id}")
+            break
+        except Exception as e:
+            logger.warning(f"Model {model_id} failed to stream: {e}")
+            last_error = e
+            stream = None
+
+    if stream is None:
+        yield f"\n\n[AI narrative generation encountered an error: {last_error}]"
+        return
+
+    # Yield first chunk content
+    delta = first_chunk.choices[0].delta.content if first_chunk.choices else None
+    if delta:
+        yield delta
+
+    # Yield remaining chunks
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content if chunk.choices else None
+        if delta:
+            yield delta
 
 
 def generate_alternatives(
@@ -191,35 +221,51 @@ def generate_alternatives(
         "Generate safer prescribing alternatives for each flagged drug."
     )
 
-    try:
-        client = _fireworks_client()
-        # JSON mode + token headroom: reasoning models otherwise emit
-        # chain-of-thought and truncate the array at a small budget.
-        extra: dict = {"response_format": {"type": "json_object"}} if config.REPORT_JSON_MODE else {}
-        response = client.chat.completions.create(
-            model=config.REPORT_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.2,
-            max_tokens=config.REPORT_MAX_TOKENS,
-            **extra,
-        )
-        raw = (response.choices[0].message.content or "").strip()
-        # Strip markdown code fences if present
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        parsed = json.loads(raw)
-        # Accept either the object form {"alternatives": [...]} or a bare array.
-        if isinstance(parsed, dict):
-            alts = parsed.get("alternatives") or next(
-                (v for v in parsed.values() if isinstance(v, list)), []
-            )
-            return alts if isinstance(alts, list) else []
-        if isinstance(parsed, list):
-            return parsed
-    except Exception as e:
-        logger.warning("Alternatives generation failed: %s", e)
+    models_to_try = [
+        "accounts/fireworks/models/gemma-4-31b-it",
+        "accounts/fireworks/models/gemma-2-9b-it",
+        config.REPORT_MODEL
+    ]
+    # Remove duplicates preserving order
+    seen = set()
+    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
 
+    client = _fireworks_client()
+    last_error = None
+
+    for model_id in models_to_try:
+        try:
+            logger.info(f"Attempting alternatives generation with model: {model_id}")
+            extra: dict = {"response_format": {"type": "json_object"}} if config.REPORT_JSON_MODE else {}
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.2,
+                max_tokens=config.REPORT_MAX_TOKENS,
+                **extra,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            # Strip markdown code fences if present
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+            parsed = json.loads(raw)
+            # Accept either the object form {"alternatives": [...]} or a bare array.
+            if isinstance(parsed, dict):
+                alts = parsed.get("alternatives") or next(
+                    (v for v in parsed.values() if isinstance(v, list)), []
+                )
+                if isinstance(alts, list):
+                    logger.info(f"Successfully generated alternatives using model: {model_id}")
+                    return alts
+            elif isinstance(parsed, list):
+                logger.info(f"Successfully generated alternatives using model: {model_id}")
+                return parsed
+        except Exception as e:
+            logger.warning(f"Model {model_id} failed to generate alternatives: {e}")
+            last_error = e
+
+    logger.error(f"All models failed for alternatives generation. Last error: {last_error}")
     return []

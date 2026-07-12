@@ -237,12 +237,12 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen w-screen bg-gradient-to-br from-mint-bg via-[#e0f2f2] to-[#cce8e8] font-sans overflow-hidden">
+    <div className="flex h-screen w-screen bg-gradient-to-br from-mint-bg via-[#e0f2f2] to-[#cce8e8] font-sans overflow-hidden print:h-auto print:w-auto print:overflow-visible print:bg-white">
       {/* Main Card — full-bleed: fills the viewport edge to edge */}
-      <div className="w-full h-full bg-white flex overflow-hidden">
+      <div className="w-full h-full bg-white flex overflow-hidden print:block print:h-auto print:w-auto print:overflow-visible">
 
         {/* Sidebar 1: Dark Teal Nav */}
-        <div className="w-[90px] bg-gradient-to-b from-[#0c7a7d] via-teal-dark to-[#075558] flex flex-col items-center py-8 gap-8 flex-shrink-0">
+        <div className="w-[90px] bg-gradient-to-b from-[#0c7a7d] via-teal-dark to-[#075558] flex flex-col items-center py-8 gap-8 flex-shrink-0 print:hidden">
           <div onClick={resetState} title="Reset" className="flex flex-col items-center gap-1.5 cursor-pointer group relative">
             <div className="absolute inset-[-6px] bg-white/10 rounded-2xl blur-md opacity-0 group-hover:opacity-100 transition-all duration-300" />
             <div className="p-3.5 bg-white rounded-2xl text-teal-dark shadow-lg transform group-hover:scale-110 group-hover:shadow-xl transition-all relative z-10">
@@ -274,7 +274,7 @@ export default function App() {
         </div>
 
         {/* Sidebar 2: Patient Context */}
-        <div className="w-[320px] bg-white border-r border-gray-100/80 flex flex-col overflow-y-auto custom-scrollbar flex-shrink-0">
+        <div className="w-[320px] bg-white border-r border-gray-100/80 flex flex-col overflow-y-auto custom-scrollbar flex-shrink-0 print:hidden">
           <div className="p-7">
             <div className="flex items-center gap-3 mb-7">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-dark to-[#129A9E] flex items-center justify-center shadow-sm">
@@ -348,10 +348,10 @@ export default function App() {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 bg-[#F8FBFB] flex flex-col relative min-w-0">
+        <div className="flex-1 bg-[#F8FBFB] flex flex-col relative min-w-0 print:bg-white print:p-0 print:overflow-visible">
 
           {/* Header */}
-          <div className="h-20 px-8 flex items-center justify-between border-b border-gray-100 bg-white/70 backdrop-blur-sm shrink-0">
+          <div className="h-20 px-8 flex items-center justify-between border-b border-gray-100 bg-white/70 backdrop-blur-sm shrink-0 print:hidden">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-teal-dark to-[#129A9E] rounded-2xl flex items-center justify-center shadow-md">
                 <Activity className="w-5 h-5 text-white" />
@@ -383,7 +383,7 @@ export default function App() {
               pb must clear the floating input bar below (~240px) or the last
               card's controls (e.g. the Generate button) sit under it and become
               unclickable even at full scroll. */}
-          <div className="flex-1 overflow-y-auto px-8 pt-7 pb-72 flex flex-col gap-6 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto px-8 pt-7 pb-72 flex flex-col gap-6 custom-scrollbar print:overflow-visible print:p-0 print:pb-0">
 
             {!result && !isAnalyzing && (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-center pb-20">
@@ -414,8 +414,44 @@ export default function App() {
             {result && (
               <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-3 duration-500">
 
+                {/* Print-only patient header */}
+                <div className="hidden print:block mb-6 pb-4 border-b-2 border-teal-800">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h1 className="text-2xl font-bold text-teal-800">DrugLens Clinical Safety Audit</h1>
+                      <p className="text-[10px] text-gray-500 font-medium tracking-wide mt-0.5">Polypharmacy Risk Intelligence</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] font-bold uppercase text-gray-400 block">Overall Risk Status</span>
+                      <span className="text-base font-extrabold text-red-600 uppercase">{result.risk_level} (Score: {result.risk_score})</span>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-4 mt-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-gray-400 block">Patient Age</span>
+                      <span className="text-xs font-semibold text-gray-800">{patientAge} years</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-gray-400 block">Renal Function (eGFR)</span>
+                      <span className="text-xs font-semibold text-gray-800">{patientEgfr || 'Not specified'} mL/min/1.73m²</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-bold uppercase text-gray-400 block">Medications List</span>
+                      <span className="text-xs font-semibold text-gray-800">{result.parsed_medications.length} items</span>
+                    </div>
+                  </div>
+                  
+                  {selectedConditions.length > 0 && (
+                    <div className="mt-3 bg-gray-50/50 p-2.5 rounded-lg border border-gray-100/50">
+                      <span className="text-[9px] font-bold uppercase text-gray-400 block">Comorbidities / Clinical Conditions</span>
+                      <span className="text-xs text-gray-700 font-medium">{selectedConditions.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Risk Banner */}
-                <div className={`p-6 rounded-3xl bg-gradient-to-r ${getRiskGradient(result.risk_level)} text-white shadow-lg`}>
+                <div className={`p-6 rounded-3xl bg-gradient-to-r ${getRiskGradient(result.risk_level)} text-white shadow-lg print:hidden`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-80 mb-1">Overall Risk Level</div>
@@ -609,7 +645,7 @@ export default function App() {
           </div>
 
           {/* Input Area */}
-          <div className="absolute bottom-0 left-0 right-0 p-6 pt-16 bg-gradient-to-t from-[#F8FBFB] via-[#F8FBFB]/95 to-transparent">
+          <div className="absolute bottom-0 left-0 right-0 p-6 pt-16 bg-gradient-to-t from-[#F8FBFB] via-[#F8FBFB]/95 to-transparent print:hidden">
             <div className="bg-white rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.07)] p-4 flex flex-col gap-3 border border-gray-100/80">
               <textarea
                 value={medicationText}
