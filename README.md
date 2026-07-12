@@ -47,6 +47,10 @@ https://github.com/user-attachments/assets/demo-video.mp4
 
 ## ✨ Features
 
+<p align="center">
+  <img src="Assets/Generated output dashboard.png" alt="DrugLens Dashboard" width="900"/>
+</p>
+
 ### 🔍 Intelligent Drug Interaction Detection
 <p align="center">
   <img src="Assets/Drug-drug interaction.png" alt="Drug-Drug Interactions" width="700"/>
