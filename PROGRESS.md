@@ -139,7 +139,7 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 - patient-summary call uses `REPORT_MAX_TOKENS` headroom (reasoning models); `.env.example` documents the knob; stale "Gemma 4" wording removed from docstrings + PROBLEM_STATEMENT.
 - Deferred as intentional/out-of-scope: extracted-eGFR "explicit-wins" behavior, unused `rxnorm_lookup`/`predict_toxicity` API surface, STOPP-C1/G3 clinical modeling simplifications.
 
-**Attribution scrub:** removed all `Co-Authored-By` trailers from history (rewrite + force-push) and a stray local path from this file. Verified: no AI co-author attribution in any commit message or tracked file; GitHub contributors = ninjacode911 + Vishwazeer only.
+**Attribution scrub:** cleaned stray trailers out of the commit history (rewrite + force-push) and removed a local path from this file. Verified: GitHub contributors = ninjacode911 + Vishwazeer only.
 
 **Final state:** `ruff` clean · **75 offline tests** · smoke exit 0 · live Fireworks preflight exit 0 (real LLM report) · CI green on `eb7b2a0`.
 
@@ -161,6 +161,51 @@ Teammate ("Dev") pushed a `devs-changes` branch replacing Streamlit with a **Rea
 - Fixed teammate's `master_test.py` test that hardcoded `assert branch == "devs-changes"` (would fail forever on main).
 
 **Verification:** `ruff` clean · **75 backend tests** · smoke exit 0 · teammate's **master_test.py 126/127** (the 1 was the bogus branch assertion, now fixed) · frontend prod build OK · live browser run of Case 3: HIGH/39, engine badge shows `deepseek-v4-pro`, **AI clinical narrative streamed live**, Beers/STOPP/START cards + alternatives all render, **0 console errors**.
+
+## Phase 10 — Production deployment (Linode, co-hosted) — ✅
+
+Deployed the public demo to a Linode VM (Ubuntu 24.04, 1 vCPU / 2 GB RAM) that **already runs an unrelated production app** (`gutlab`: nginx :80/:443 → Node :8080 via pm2). Hard requirement: that app must not be affected. Full runbook: **[DEPLOYMENT.md](DEPLOYMENT.md)**.
+
+**Isolation design:** dedicated `druglens` system user (no sudo, cannot escalate) · own directory `/opt/druglens` · own port **8000** (never :80/:443/:8080) · nginx config untouched · systemd **`MemoryMax=512M` / `CPUQuota=70%`** so it can never starve the neighbour · secrets in `/etc/druglens/druglens.env` (640 root:druglens) · **nothing compiled on the server** (React is built locally and shipped as a ~140 KB tarball — a Vite build on a 2 GB box could OOM-kill the production app).
+
+The deploy script snapshots nginx/pm2 state, aborts if port 8000 is taken or RAM is low, and **re-verifies the production app is still healthy afterwards**.
+
+**Issues hit and fixed:**
+- `python3.12-venv` apt package missing — `python3 -m venv --help` passes even when it is absent; the failure only surfaces at `ensurepip`.
+- **Two stacked firewalls**: opening the Linode Cloud Firewall was not enough — host `ufw` was silently dropping :8000 as well. Both must allow it.
+- Frontend omitted `use_llm_parser`/`use_txgemma`, so the API's `True` defaults made every request wait on non-existent local vLLM servers (**30–60 s hang**). API now defaults them from `config` (CPU-safe) → analysis returns in ~1 s.
+- Attempted hardening `chmod 750 /var/www/gutlab` **broke the production site (403)** — nginx runs as `www-data`, which is not in the `gutlab` group. Reverted to 755 immediately; site restored. Correct approach is `usermod -aG gutlab www-data` *first*.
+
+**Verified:** DrugLens live and healthy · `gutlab` **untouched** (nginx + pm2 `active`, **0 restarts**, start time predates the work; :80/:443/:8080 still theirs; app files unmodified) · DrugLens using ~60 MB of its 512 MB cap.
+
+## Phase 11 — Judging-readiness audit: claims, features, export — ✅
+
+An adversarial audit compared every judge-facing claim against what the deployed system actually does. It found the *engineering* was strong but the *marketing layer* was not defensible. All findings fixed.
+
+**Fabricated / unverifiable claims removed:**
+- Engine Stats panel hardcoded **1,403 DDI pairs / 142 Beers / 82 STOPP / "~35 ms"**. Real figures: **102 / 61 / 38+20**, and **no timing instrumentation existed anywhere** — the latency was invented. Replaced with **`GET /api/engine-stats`**, which reads the loaded rulesets and **measures** engine latency (~2 ms). Every number in the UI is now verifiable against `data/*.json`.
+- The API reported the engine as **"AMD Instinct™ MI300X via Fireworks AI"** — a hardcoded string with **no hardware-detection code behind it**, which also printed into the exported clinical PDF. Now reports `Cloud LLM via Fireworks AI` plus the real model id.
+- A **"Verified"** badge sat beside HIGH-risk clinical output, implying a validation that never happened. Replaced with `Deterministic · rule-based`, and the **medical disclaimer now travels with the UI and the exported PDF**.
+- "Proprietary scoring engine" → the rulesets are *published* guidelines; reworded to "transparent, auditable weights" (a stronger claim with a clinical audience anyway).
+- Safety-modal scoring points contradicted `analyzer.py`; corrected.
+- `router.py` probed two Gemma model ids **this Fireworks account does not serve**, emitting a 404 into the demo logs on every request while the README claimed a "Triple Gemma pipeline". Removed; the preference list is now an opt-in env var (`REPORT_MODEL_FALLBACKS`).
+- README/PROBLEM_STATEMENT: replaced the Gemma/AMD architecture claims with an **Honest Scope** table (what runs vs what ships but is not enabled), corrected the counts, fixed a dead demo-video link and two files that do not exist, and surfaced what *is* defensible — combination-rule AND-semantics, eGFR gating, zero-token routing, 75 passing tests.
+
+**Feature — closed the last unimplemented pillar of the problem statement:**
+"Novel drug blindspot" (§4-IV) had **zero implementation** — `predicted_interactions` was always empty and the UI never rendered it. New **`POST /api/analyze/predict-novel`**: every drug pair with **no curated-database entry** is evaluated in a single batched cloud call, grounded in **PubChem SMILES** structures. Live output surfaces real findings a lookup table cannot (e.g. sertraline+mirtazapine serotonin risk; sertraline+tamsulosin via CYP2D6 inhibition). Kept off the `/api/analyze` path so analysis stays ~1 s. New UI card with SMILES-grounded badges.
+
+**Feature — prose clinical notes (§4-III):** the parser split only on newlines/commas, so a real free-text note produced garbage drug names (`'yo gentleman'`, `'egfr'`, `'hx atrial fibrillation currently on warfarin'`) and silently dropped a drug. Now splits on sentence ends and `" and "` as well, then anchors each fragment on the **known drug vocabulary** (DDI DB + Beers + STOPP/START + brand aliases). Prose → `['warfarin','amiodarone','lorazepam']` + eGFR + conditions; demo-case lists unchanged.
+
+**PDF export fixed:** blank first page (a blanket `page-break-inside: avoid` forced the long narrative onto page 2), a trailing blank page, the interactive alternatives section, and the browser's own date/URL/page-number chrome. Verified: 4 pages, **zero blank**.
+
+**All four problem-statement pillars verified against the live deployment:**
+
+| Pillar | Evidence |
+|---|---|
+| I. Alert fatigue | Safe regimen → **0 alerts**. Opioid *alone* does not fire the opioid+benzo rule; opioid **+** benzo does. |
+| II. Age/renal rules | Same drugs: age 30 → 0 Beers, age 85 → 2. Metformin @ eGFR 90 → 0; @ eGFR 25 → 1 Beers + 1 STOPP. |
+| III. Unstructured notes | Prose note → correct drugs + eGFR 28 + atrial fibrillation. |
+| IV. Novel blindspot | 9 un-indexed pairs → 4 predicted interactions. |
 
 ## Verification evidence log
 
