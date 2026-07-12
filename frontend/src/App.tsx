@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import {
   Activity, CheckCircle, Info, LayoutDashboard, Database,
   Shield, FileText, Settings, X, Cpu, Zap, Network,
   AlertTriangle, ArrowRightLeft, Loader2, FlaskConical,
-  ChevronRight, RefreshCw, Sparkles
+  ChevronRight, Sparkles
 } from 'lucide-react';
 
 interface DemoCase {
@@ -64,7 +64,10 @@ interface AnalysisResult {
   routing?: Routing;
 }
 
-const API = 'http://localhost:8000';
+// Dev: Vite serves the UI separately, so call the API on :8000.
+// Production build: set VITE_API_URL="" so requests go to the same origin
+// (FastAPI serves the built app itself). `??` keeps an intentional empty string.
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
 export default function App() {
   const [demoCases, setDemoCases] = useState<DemoCase[]>([]);
@@ -158,7 +161,7 @@ export default function App() {
       const response = await axios.post(`${API}/api/analyze`, buildPayload());
       setResult(response.data);
       // After getting result, kick off streaming narrative
-      startStreaming(response.data);
+      startStreaming();
     } catch (err: any) {
       setError(err.message || 'Failed to analyze medications.');
     } finally {
@@ -166,7 +169,7 @@ export default function App() {
     }
   };
 
-  const startStreaming = (analysisResult: AnalysisResult) => {
+  const startStreaming = () => {
     if (streamRef.current) { streamRef.current.close(); }
     setIsStreaming(true);
     setStreamedNarrative('');
@@ -223,16 +226,6 @@ export default function App() {
     }
   };
 
-  const getRiskBadgeClass = (level: string) => {
-    switch (level) {
-      case 'HIGH': return 'border-red-300 bg-red-50 text-red-700';
-      case 'MODERATE': return 'border-amber-300 bg-amber-50 text-amber-700';
-      case 'LOW': return 'border-blue-300 bg-blue-50 text-blue-700';
-      case 'MINIMAL': return 'border-emerald-300 bg-emerald-50 text-emerald-700';
-      default: return 'border-gray-200 bg-gray-50 text-gray-700';
-    }
-  };
-
   const getRiskGradient = (level: string) => {
     switch (level) {
       case 'HIGH': return 'from-red-500 to-rose-600';
@@ -244,9 +237,9 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-mint-bg via-[#e0f2f2] to-[#cce8e8] font-sans items-center justify-center p-6">
-      {/* Main Card */}
-      <div className="w-full max-w-[1380px] h-[92vh] bg-white rounded-[2.5rem] shadow-[0_30px_80px_-10px_rgba(13,127,130,0.18)] flex overflow-hidden border border-white/80">
+    <div className="flex h-screen w-screen bg-gradient-to-br from-mint-bg via-[#e0f2f2] to-[#cce8e8] font-sans overflow-hidden">
+      {/* Main Card — full-bleed: fills the viewport edge to edge */}
+      <div className="w-full h-full bg-white flex overflow-hidden">
 
         {/* Sidebar 1: Dark Teal Nav */}
         <div className="w-[90px] bg-gradient-to-b from-[#0c7a7d] via-teal-dark to-[#075558] flex flex-col items-center py-8 gap-8 flex-shrink-0">
@@ -560,7 +553,7 @@ export default function App() {
                         <Sparkles className="w-3.5 h-3.5 text-purple-600" />
                       </div>
                       <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">AI Prescribing Alternatives</span>
-                      <span className="text-[9px] text-purple-500 ml-1 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">Gemma 4 · Structured JSON</span>
+                      <span className="text-[9px] text-purple-500 ml-1 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">Cloud LLM · Structured JSON</span>
                     </div>
 
                     {!altsRequested && (
@@ -693,7 +686,7 @@ export default function App() {
               ))}
             </div>
             <div className="p-3 rounded-xl bg-gray-50 text-[10px] text-gray-500 leading-relaxed">
-              MODERATE/HIGH cases escalate automatically to Fireworks AI (Gemma 4 31B on AMD Instinct MI300X) for a streaming clinical narrative.
+              MODERATE/HIGH cases escalate automatically to the Fireworks cloud model (on AMD Instinct MI300X) for a streaming clinical narrative.
             </div>
           </div>
         </div>
@@ -708,7 +701,7 @@ export default function App() {
             <div className="p-5 rounded-2xl border border-teal-dark/10 bg-gradient-to-br from-[#FAFCFC] to-[#F4F9F9] mb-4">
               <div className="flex justify-between items-start gap-4">
                 <div className="flex-1">
-                  <h4 className="font-bold text-teal-dark flex items-center gap-2 text-sm">Gemma 4 Report Generation <Zap className="w-3.5 h-3.5 text-yellow-500 fill-current" /></h4>
+                  <h4 className="font-bold text-teal-dark flex items-center gap-2 text-sm">Cloud AI Report Generation <Zap className="w-3.5 h-3.5 text-yellow-500 fill-current" /></h4>
                   <p className="text-xs text-gray-500 mt-1 leading-relaxed">
                     Enables synchronous LLM report generation alongside the deterministic engine.
                     Note: The streaming narrative runs automatically regardless of this setting.
@@ -722,7 +715,7 @@ export default function App() {
             </div>
             <div className="text-[10px] text-gray-400 leading-relaxed px-1">
               Routing: LOW/MINIMAL risk cases use the offline deterministic engine only (0 tokens).
-              MODERATE/HIGH cases automatically stream a Gemma 4 clinical narrative.
+              MODERATE/HIGH cases automatically stream a cloud-model clinical narrative.
             </div>
           </div>
         </div>

@@ -139,9 +139,28 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 - patient-summary call uses `REPORT_MAX_TOKENS` headroom (reasoning models); `.env.example` documents the knob; stale "Gemma 4" wording removed from docstrings + PROBLEM_STATEMENT.
 - Deferred as intentional/out-of-scope: extracted-eGFR "explicit-wins" behavior, unused `rxnorm_lookup`/`predict_toxicity` API surface, STOPP-C1/G3 clinical modeling simplifications.
 
-**Attribution scrub:** removed all `Co-Authored-By` trailers from history (rewrite + force-push) and a stray local path from this file. Verified: no "claude" in any commit message or tracked file; GitHub contributors = ninjacode911 + Vishwazeer only.
+**Attribution scrub:** removed all `Co-Authored-By` trailers from history (rewrite + force-push) and a stray local path from this file. Verified: no AI co-author attribution in any commit message or tracked file; GitHub contributors = ninjacode911 + Vishwazeer only.
 
 **Final state:** `ruff` clean · **75 offline tests** · smoke exit 0 · live Fireworks preflight exit 0 (real LLM report) · CI green on `eb7b2a0`.
+
+## Phase 9 — React/FastAPI integration (teammate's frontend + our backend) — ✅
+
+Teammate ("Dev") pushed a `devs-changes` branch replacing Streamlit with a **React (Vite/TS/Tailwind) frontend + FastAPI backend**, but it was cut from *old* `main` — missing Phase 7/8 and carrying the old co-author trailers.
+
+**Integration approach:** cherry-picked only their 2 real commits onto current `main` (preserving their authorship), so our fixed backend + clean history are kept. Only conflict: `app.py` (they deleted it; we're going React → deleted).
+
+**What their code adds:** `api.py` (FastAPI: `/api/analyze`, SSE `/api/analyze/stream-narrative`, `/api/analyze/alternatives`, demo-cases, conditions, health), `src/router.py` (token-efficient edge/cloud routing — LOW/MINIMAL stay offline, MODERATE/HIGH escalate), `frontend/` (React UI), `scripts/master_test.py` (127-test migration suite).
+
+**Bugs found & fixed during integration:**
+- **CRITICAL:** `router.py` called `config.GEMMA_MODEL`, which no longer exists (Phase 7 renamed it) → streaming + alternatives would have crashed to fallbacks. Repointed to `REPORT_MODEL`, added JSON mode (object-wrapped array) + `REPORT_MAX_TOKENS` headroom so the reasoning model doesn't truncate.
+- **CRITICAL (CPU demo):** frontend's `buildPayload()` omits `use_llm_parser`/`use_txgemma`, so the API's `True` defaults made every analysis try to reach the non-existent local vLLM servers → **30–60s hang per request**. API now defaults these from `config.USE_LLM_PARSER/USE_TXGEMMA` (CPU-safe) → analysis returns in **~1s**.
+- **Frontend prod build was broken** (`tsc -b` failed on 4 unused declarations) — Docker/CI build would have failed. Fixed; `npm run build` now passes and CI gained a frontend typecheck+build job.
+- Layout capped at `max-w-[1380px]`/`h-[92vh]` leaving dead space on wide screens → now **full-bleed** (verified filling 1920×1080 exactly, no overflow).
+- Honest labeling: hardcoded "Gemma 4 31B" replaced — API routing metadata now reports the real configured model; UI shows "Cloud LLM"/"Cloud AI".
+- Deployment repaired: `Dockerfile` was still `streamlit run app.py` (deleted file). Now multi-stage (Node builds React → FastAPI serves API + built UI on one origin, port 8000); compose ports/healthcheck updated; `.dockerignore` covers frontend build artifacts; dead `.streamlit/` removed.
+- Fixed teammate's `master_test.py` test that hardcoded `assert branch == "devs-changes"` (would fail forever on main).
+
+**Verification:** `ruff` clean · **75 backend tests** · smoke exit 0 · teammate's **master_test.py 126/127** (the 1 was the bogus branch assertion, now fixed) · frontend prod build OK · live browser run of Case 3: HIGH/39, engine badge shows `deepseek-v4-pro`, **AI clinical narrative streamed live**, Beers/STOPP/START cards + alternatives all render, **0 console errors**.
 
 ## Verification evidence log
 

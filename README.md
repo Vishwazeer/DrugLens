@@ -7,7 +7,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python" alt="Python">
-  <img src="https://img.shields.io/badge/Streamlit-1.45-FF4B4B?style=for-the-badge&logo=streamlit" alt="Streamlit">
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react" alt="React">
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi" alt="FastAPI">
   <img src="https://img.shields.io/badge/AMD-Instinct%20GPUs-ED1C24?style=for-the-badge&logo=amd" alt="AMD">
   <img src="https://img.shields.io/badge/Google-Gemma%20Suite-4285F4?style=for-the-badge&logo=google" alt="Gemma">
   <img src="https://img.shields.io/badge/ROCm-Compatible-0052CC?style=for-the-badge" alt="ROCm">
@@ -95,25 +96,37 @@ To ensure the application remains operational in resource-constrained environmen
 
 ## 🚀 Step-by-Step Walkthrough
 
-### 1. Local Python Run (CPU-Only / API Mode)
+### 1. Local Run (CPU-Only / API Mode)
 
-Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for the cloud AI report. **Requires Python ≥ 3.10.**
+The app is a **React (Vite + TypeScript + Tailwind) frontend** talking to a **FastAPI backend** that wraps the deterministic engine and escalates complex cases to the Fireworks cloud model. **Requires Python ≥ 3.10 and Node ≥ 20.**
 
 ```bash
 # Clone the repository
 git clone https://github.com/Vishwazeer/DrugLens.git
 cd DrugLens
 
-# Install requirements
+# Backend deps + config
 pip install -r requirements.txt
-
-# Create .env config
 cp .env.example .env
 # Edit .env and insert your: FIREWORKS_API_KEY=your_key_here
 
-# Launch the app
-streamlit run app.py
+# Terminal 1 — API on :8000
+uvicorn api:app --reload --port 8000
+
+# Terminal 2 — React UI on :5173
+cd frontend && npm install && npm run dev
 ```
+
+Open the Vite URL (http://localhost:5173). The UI calls the API on `:8000`.
+
+**Single-origin build** (one server for API + UI, as used in Docker):
+
+```bash
+cd frontend && VITE_API_URL="" npm run build && cd ..
+uvicorn api:app --port 8000     # serves the built UI at / and the API at /api/*
+```
+
+**API endpoints:** `POST /api/analyze` · `POST /api/analyze/stream-narrative` (SSE) · `POST /api/analyze/alternatives` · `GET /api/demo-cases` · `GET /api/conditions` · `GET /api/health`
 
 ### Testing & Quality Gates
 
@@ -123,7 +136,7 @@ The deterministic pipeline is covered by a fully offline pytest suite (network c
 pip install -r requirements-dev.txt
 
 ruff check .                            # lint — expect zero findings
-pytest -q                               # 73 offline tests
+pytest -q                               # 75 offline tests
 python scripts/smoke_check.py           # demo cases hit their risk bands (exit code gated)
 python scripts/fireworks_live_check.py  # live preflight: API key + model id + end-to-end report
 ```
@@ -162,7 +175,7 @@ We provide ready-to-use Docker compose profiles for different setups.
 ```bash
 docker compose --profile cpu-only up --build
 ```
-*Port exposed: `8501`. A `.env` file is optional (Docker Compose ≥ 2.24 — on older Compose versions create an empty `.env` first).*
+*Port exposed: `8000` — one container serves the API and the built React UI on the same origin. A `.env` file is optional (Docker Compose ≥ 2.24 — on older Compose versions create an empty `.env` first).*
 
 ### Full GPU Mode (MedGemma + TxGemma + App served locally on ROCm)
 ```bash
@@ -194,15 +207,15 @@ To help judges evaluate the application immediately, the sidebar contains three 
 
 ```
 DrugLens/
-├── app.py                  # Streamlit UI — "clinical instrument panel" design system
+├── api.py                  # FastAPI backend (analyze, SSE narrative, alternatives)
+├── frontend/               # React + Vite + TypeScript + Tailwind UI
 ├── setup_amd_pod.sh        # Automates ROCm + vLLM model deployments
-├── Dockerfile              # Docker image definition for Streamlit App
+├── Dockerfile              # Multi-stage: builds React, serves it from FastAPI
 ├── docker-compose.yml      # gpu / cpu-only profiles
 ├── pyproject.toml          # pytest + ruff config, requires-python >= 3.10
 ├── requirements.txt        # Runtime dependencies
 ├── requirements-dev.txt    # pytest + ruff
 ├── PROGRESS.md             # Per-phase implementation & verification log
-├── .streamlit/config.toml  # Theme (native widgets match the design system)
 ├── .github/workflows/ci.yml  # CI: ruff + pytest + smoke check
 ├── data/
 │   ├── beers_criteria.json     # AGS Beers 2023 PIMs (combination/eGFR-gated rules)
@@ -214,11 +227,12 @@ DrugLens/
 │   ├── med_parser.py           # MedGemma parser + regex fallback
 │   ├── ddi_predictor.py        # TxGemma SMILES-based predictor
 │   ├── report_generator.py     # Cloud report (Fireworks) + rule-based fallback
+│   ├── router.py               # Token-efficient edge/cloud routing + SSE streaming
 │   └── analyzer.py             # Orchestrator pipeline + risk scoring
 ├── scripts/
 │   ├── smoke_check.py          # Offline demo-case assertion script
 │   └── fireworks_live_check.py # Live Fireworks preflight (key + model id + report)
-└── tests/                  # 73 offline pytest tests (engines, parser, pipeline, demos)
+└── tests/                  # 75 offline pytest tests (engines, parser, pipeline, demos)
 ```
 
 **Known limitations / future work:** duplicate drug-class detection (former STOPP-Q1) is not implemented; combination products (e.g. Percocet) map to their opioid component only; local vLLM code paths are unit-tested with mocks (verify on an AMD pod before GPU demos).

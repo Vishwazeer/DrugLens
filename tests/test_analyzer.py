@@ -165,5 +165,5 @@ def test_demo_conditions_subset_of_ui_options() -> None:
         for cond in case["conditions"]:
             assert cond in CONDITION_OPTIONS, (
                 f"{case['name']}: condition {cond!r} not a UI option — "
-                "would crash the Streamlit multiselect"
+                "must be a valid option served by /api/conditions"
             )

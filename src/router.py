@@ -2,17 +2,18 @@
 
 Implements a smart two-tier routing strategy:
   - LOW / MINIMAL risk → local deterministic engine only (0 tokens spent)
-  - MODERATE / HIGH risk → escalate to Fireworks AI (Gemma 4) for deep analysis
+  - MODERATE / HIGH risk → escalate to the Fireworks cloud model for deep analysis
 
 This architecture maximises compute efficiency by reserving expensive GPU
 inference (AMD Instinct MI300X via Fireworks AI) for the cases that actually
-need it, while serving routine checks entirely offline in <50 ms.
+need it, while serving routine checks entirely offline in <50 ms. The cloud
+model is configurable via ``config.REPORT_MODEL``.
 """
 
 import json
 import logging
 import re
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from openai import OpenAI
 
@@ -107,13 +108,15 @@ async def stream_clinical_narrative(
     try:
         client = _fireworks_client()
         stream = client.chat.completions.create(
-            model=config.GEMMA_MODEL,
+            model=config.REPORT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.35,
-            max_tokens=1024,
+            # Headroom so reasoning models don't exhaust the budget on hidden
+            # reasoning before the narrative streams.
+            max_tokens=config.REPORT_MAX_TOKENS,
             stream=True,
         )
         for chunk in stream:
@@ -128,7 +131,7 @@ async def stream_clinical_narrative(
 def generate_alternatives(
     analysis_result: dict,
 ) -> list[dict]:
-    """Use Fireworks AI (Gemma 4) to generate structured JSON prescribing alternatives.
+    """Use the Fireworks cloud model to generate structured JSON prescribing alternatives.
 
     For each flagged drug, returns a list of dicts with:
       - drug: the flagged medication
@@ -172,7 +175,8 @@ def generate_alternatives(
 
     system_prompt = (
         "You are a clinical pharmacist generating structured prescribing alternatives. "
-        "Return ONLY a valid JSON array. Each element must have these exact keys: "
+        'Return ONLY a valid JSON object of the form {"alternatives": [ ... ]}. '
+        "Each array element must have these exact keys: "
         '"drug" (string), "reason" (string), "safer_alternative" (string), '
         '"rationale" (string, max 20 words, specific to patient age/eGFR), '
         '"priority" (string, either "high" or "moderate"). '
@@ -189,20 +193,30 @@ def generate_alternatives(
 
     try:
         client = _fireworks_client()
+        # JSON mode + token headroom: reasoning models otherwise emit
+        # chain-of-thought and truncate the array at a small budget.
+        extra: dict = {"response_format": {"type": "json_object"}} if config.REPORT_JSON_MODE else {}
         response = client.chat.completions.create(
-            model=config.GEMMA_MODEL,
+            model=config.REPORT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.2,
-            max_tokens=1024,
+            max_tokens=config.REPORT_MAX_TOKENS,
+            **extra,
         )
         raw = (response.choices[0].message.content or "").strip()
         # Strip markdown code fences if present
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
         parsed = json.loads(raw)
+        # Accept either the object form {"alternatives": [...]} or a bare array.
+        if isinstance(parsed, dict):
+            alts = parsed.get("alternatives") or next(
+                (v for v in parsed.values() if isinstance(v, list)), []
+            )
+            return alts if isinstance(alts, list) else []
         if isinstance(parsed, list):
             return parsed
     except Exception as e:

@@ -1,17 +1,28 @@
 import json
 import logging
-from typing import List, Optional
+from pathlib import Path
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from src.analyzer import analyze_medications, get_demo_cases, CONDITION_OPTIONS
-from src.router import decide_route, stream_clinical_narrative, generate_alternatives, ROUTE_EDGE, ROUTE_CLOUD
+from src import config
+from src.analyzer import CONDITION_OPTIONS, analyze_medications, get_demo_cases
+from src.router import (
+    ROUTE_CLOUD,
+    decide_route,
+    generate_alternatives,
+    stream_clinical_narrative,
+)
+
+# Friendly short name of the configured cloud model, e.g. "deepseek-v4-pro"
+_CLOUD_MODEL_LABEL = config.REPORT_MODEL.split("/")[-1]
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,11 +54,15 @@ async def preflight_handler(rest_of_path: str, request: Request) -> Response:
 class AnalyzeRequest(BaseModel):
     medication_text: str
     patient_age: int = 75
-    patient_conditions: Optional[List[str]] = None
-    patient_egfr: Optional[float] = None
-    use_llm_parser: bool = True
-    use_txgemma: bool = True
-    use_gemma4: bool = True
+    patient_conditions: list[str] | None = None
+    patient_egfr: float | None = None
+    # Default the local-vLLM toggles from the deployment's feature flags so the
+    # API is CPU-safe out of the box (no MedGemma/TxGemma connection attempts
+    # unless a GPU pod sets USE_LLM_PARSER / USE_TXGEMMA). The frontend still
+    # overrides use_gemma4 from its toggle.
+    use_llm_parser: bool = config.USE_LLM_PARSER
+    use_txgemma: bool = config.USE_TXGEMMA
+    use_gemma4: bool = config.USE_GEMMA4
 
 @app.post("/api/analyze")
 async def analyze(request: AnalyzeRequest):
@@ -66,12 +81,12 @@ async def analyze(request: AnalyzeRequest):
         result["routing"] = {
             "route": route,
             "engine": "AMD Instinct™ MI300X via Fireworks AI" if route == ROUTE_CLOUD else "Edge Engine (Offline)",
-            "model": "Gemma 4 31B" if route == ROUTE_CLOUD else None,
+            "model": _CLOUD_MODEL_LABEL if route == ROUTE_CLOUD else None,
         }
         return result
     except Exception as e:
         logger.error(f"Error during analysis: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/analyze/stream-narrative")
@@ -126,14 +141,14 @@ async def stream_narrative(request: AnalyzeRequest):
         )
     except Exception as e:
         logger.error(f"Error during streaming: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/api/analyze/alternatives")
 async def get_alternatives(request: AnalyzeRequest):
     """Generate structured JSON prescribing alternatives via Fireworks AI.
 
-    Uses Gemma 4 to produce safer alternatives for each flagged medication,
+    Uses the Fireworks cloud model to produce safer alternatives for each flagged medication,
     demonstrating structured JSON extraction from open-weights LLMs.
     """
     try:
@@ -150,7 +165,7 @@ async def get_alternatives(request: AnalyzeRequest):
         return {"alternatives": alternatives, "risk_level": result.get("risk_level")}
     except Exception as e:
         logger.error(f"Error generating alternatives: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/demo-cases")
@@ -164,6 +179,15 @@ async def conditions():
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
+
+
+# Serve the built React app (frontend/dist) from the same origin when it exists,
+# so a single container can serve both the API and the UI. Mounted last so the
+# /api/* routes above always take precedence. In dev the Vite server handles the
+# UI instead and this mount is simply absent.
+_DIST = Path(__file__).parent / "frontend" / "dist"
+if _DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

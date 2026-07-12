@@ -30,7 +30,6 @@ Run with:
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -778,14 +777,18 @@ class TestProjectHygiene:
     def test_env_example_exists(self):
         assert (PROJECT_ROOT / ".env.example").is_file()
 
-    def test_git_on_devs_changes_branch(self):
+    def test_git_repo_is_healthy(self):
+        """The project is a git repo on some branch.
+
+        (Previously this pinned the branch name to the feature branch the
+        React/FastAPI work was developed on, which fails once merged.)
+        """
         result = subprocess.run(
             ["git", "branch", "--show-current"],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT)
         )
-        branch = result.stdout.strip()
-        assert branch == "devs-changes", \
-            f"Expected branch 'devs-changes', currently on '{branch}'"
+        assert result.returncode == 0, "not a git repository"
+        assert result.stdout.strip(), "detached HEAD / no current branch"
 
     def test_api_py_has_cors_middleware(self):
         api_code = (PROJECT_ROOT / "api.py").read_text()
@@ -818,34 +821,34 @@ class TestTokenEfficientRouter:
     """Validate the routing agent's decision logic without any API calls."""
 
     def test_router_module_importable(self):
-        from src.router import decide_route, ROUTE_EDGE, ROUTE_CLOUD
+        from src.router import ROUTE_CLOUD, ROUTE_EDGE
         assert ROUTE_EDGE == "edge"
         assert ROUTE_CLOUD == "cloud_llm"
 
     def test_high_risk_routes_to_cloud(self):
-        from src.router import decide_route, ROUTE_CLOUD
+        from src.router import ROUTE_CLOUD, decide_route
         assert decide_route("HIGH") == ROUTE_CLOUD
 
     def test_moderate_risk_routes_to_cloud(self):
-        from src.router import decide_route, ROUTE_CLOUD
+        from src.router import ROUTE_CLOUD, decide_route
         assert decide_route("MODERATE") == ROUTE_CLOUD
 
     def test_low_risk_routes_to_edge(self):
-        from src.router import decide_route, ROUTE_EDGE
+        from src.router import ROUTE_EDGE, decide_route
         assert decide_route("LOW") == ROUTE_EDGE
 
     def test_minimal_risk_routes_to_edge(self):
-        from src.router import decide_route, ROUTE_EDGE
+        from src.router import ROUTE_EDGE, decide_route
         assert decide_route("MINIMAL") == ROUTE_EDGE
 
     def test_unknown_risk_routes_to_edge(self):
-        from src.router import decide_route, ROUTE_EDGE
+        from src.router import ROUTE_EDGE, decide_route
         assert decide_route("UNKNOWN") == ROUTE_EDGE
 
     def test_case1_routes_to_edge(self):
         """Case 1 (MINIMAL) must never spend tokens."""
-        from src.router import decide_route, ROUTE_EDGE
         from src.analyzer import analyze_medications, get_demo_cases
+        from src.router import ROUTE_EDGE, decide_route
         case = get_demo_cases()[0]
         result = analyze_medications(
             case["medication_text"], patient_age=case["patient_age"],
@@ -856,8 +859,8 @@ class TestTokenEfficientRouter:
 
     def test_case3_routes_to_cloud(self):
         """Case 3 (HIGH) must escalate to cloud LLM."""
-        from src.router import decide_route, ROUTE_CLOUD
         from src.analyzer import analyze_medications, get_demo_cases
+        from src.router import ROUTE_CLOUD, decide_route
         case = get_demo_cases()[2]
         result = analyze_medications(
             case["medication_text"], patient_age=case["patient_age"],

@@ -57,14 +57,14 @@ services:
     profiles:
       - gpu  # Only starts with: docker compose --profile gpu up
 
-  # --- DrugLens App (companion to the GPU model servers) ---
+  # --- DrugLens App: FastAPI + built React UI (companion to the GPU servers) ---
   app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: druglens-app
     ports:
-      - "8501:8501"
+      - "8000:8000"  # API + UI on the same origin
     env_file:
       - path: .env
         required: false  # needs Compose >= 2.24; create an empty .env otherwise
@@ -87,14 +87,14 @@ services:
       dockerfile: Dockerfile
     container_name: druglens-app-cpu
     ports:
-      - "8501:8501"
+      - "8000:8000"  # API + UI on the same origin
     env_file:
       - path: .env
         required: false  # needs Compose >= 2.24; create an empty .env otherwise
     environment:
-      - USE_LLM_PARSER=false
+      - USE_LLM_PARSER=false   # no local vLLM on CPU — regex parser + rules DB
       - USE_TXGEMMA=false
-      - USE_GEMMA4=true  # Gemma 4 via Fireworks API (no local GPU)
+      - USE_GEMMA4=true        # cloud report via Fireworks (REPORT_MODEL)
     profiles:
       - cpu-only  # Starts with: docker compose --profile cpu-only up
 

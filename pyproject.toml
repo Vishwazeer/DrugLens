@@ -18,3 +18,8 @@ select = ["E", "F", "W", "I", "UP", "B"]
 ignore = [
     "E501",  # long lines in data-heavy prompt/CSS blocks
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# api.py calls load_dotenv() before importing src.config so the env is
+# populated when config reads it — imports intentionally follow that call.
+"api.py" = ["E402"]
