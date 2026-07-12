@@ -166,7 +166,9 @@ def analyze_medications(
             errors.append(f"TxGemma prediction failed: {e}")
             logger.warning("TxGemma prediction failed: %s", e)
 
-    # --- Step 6: Generate risk report via Gemma 4 ---
+    # --- Step 6 & 7: Cloud report + patient summary ---
+    # Both are gated on use_gemma4 so that turning the cloud report off makes
+    # NO cloud call (and renders no summary built from an empty report).
     if use_gemma4:
         try:
             report = generate_risk_report(
@@ -182,16 +184,15 @@ def analyze_medications(
             errors.append(f"Risk report generation failed: {e}")
             logger.warning("Risk report generation failed: %s", e)
 
-    # --- Step 7: Generate patient summary ---
-    try:
-        summary = generate_patient_summary(
-            risk_report=result["risk_report"] if isinstance(result["risk_report"], dict) else {},
-            medications=result["parsed_medications"],
-        )
-        result["patient_summary"] = summary
-    except Exception as e:
-        errors.append(f"Patient summary generation failed: {e}")
-        logger.warning("Patient summary generation failed: %s", e)
+        try:
+            summary = generate_patient_summary(
+                risk_report=result["risk_report"] if isinstance(result["risk_report"], dict) else {},
+                medications=result["parsed_medications"],
+            )
+            result["patient_summary"] = summary
+        except Exception as e:
+            errors.append(f"Patient summary generation failed: {e}")
+            logger.warning("Patient summary generation failed: %s", e)
 
     # --- Compute overall risk level ---
     result["risk_level"] = _compute_risk_level(result)

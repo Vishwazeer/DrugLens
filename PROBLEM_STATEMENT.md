@@ -75,7 +75,7 @@ DrugLens solves these problems by wrapping a fast, digitized geriatric rules eng
 │     Novel DDI Predictions       │  <-- Evaluates chemical structures (SMILES)
 └────────────────┬────────────────┘
                  │
-                 ▼  [Model 3: Gemma 4 31B]
+                 ▼  [Model 3: Cloud report model (Fireworks)]
 ┌─────────────────────────────────┐
 │    Interactive Clinical Report  │  <-- Synthesizes summary + deprescribing suggestions
 └─────────────────────────────────┘

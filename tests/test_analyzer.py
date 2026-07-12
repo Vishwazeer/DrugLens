@@ -114,6 +114,39 @@ def test_risk_weights_and_thresholds() -> None:
     assert _compute_risk_level(predicted_only) == "LOW"
 
 
+def test_cloud_calls_gated_off_when_use_gemma4_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """use_gemma4=False must make NO cloud call (report or patient summary)."""
+    calls: list[str] = []
+    monkeypatch.setattr(analyzer, "generate_risk_report",
+                        lambda **k: calls.append("report") or {})
+    monkeypatch.setattr(analyzer, "generate_patient_summary",
+                        lambda **k: calls.append("summary") or "x")
+
+    result = _analyze_offline("warfarin 5mg daily", patient_age=80, use_gemma4=False)
+    assert calls == [], "no cloud functions should run when use_gemma4 is off"
+    assert result["risk_report"] == {}
+    assert result["patient_summary"] == ""
+
+
+def test_patient_summary_generated_when_use_gemma4_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(analyzer, "generate_risk_report",
+                        lambda **k: calls.append("report") or {"overall_risk_score": "low"})
+    monkeypatch.setattr(analyzer, "generate_patient_summary",
+                        lambda **k: calls.append("summary") or "a plain-English summary")
+
+    result = analyze_medications(
+        "warfarin 5mg daily", patient_age=80,
+        use_llm_parser=False, use_txgemma=False, use_gemma4=True,
+    )
+    assert calls == ["report", "summary"]
+    assert result["patient_summary"] == "a plain-English summary"
+
+
 def test_result_contains_all_documented_keys() -> None:
     result = _analyze_offline("metformin 500mg daily", patient_age=70)
     expected_keys = {

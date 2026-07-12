@@ -1,4 +1,4 @@
-"""Live Fireworks preflight: verify API key, model id, and Gemma 4 report.
+"""Live Fireworks preflight: verify API key, model id, and cloud report.
 
 Requires FIREWORKS_API_KEY in .env or the environment. Exits non-zero on any
 failure so it can gate a demo-day checklist.

@@ -1,4 +1,4 @@
-"""Risk report generator using Gemma 4 via Fireworks, with rule-based fallback."""
+"""Risk report generator using a Fireworks cloud model, with rule-based fallback."""
 
 import json
 import re
@@ -338,7 +338,9 @@ def generate_patient_summary(
                 {"role": "user", "content": context},
             ],
             temperature=0.4,
-            max_tokens=1024,
+            # Headroom so reasoning models don't spend the whole budget on
+            # hidden reasoning and return an empty/truncated summary.
+            max_tokens=config.REPORT_MAX_TOKENS,
         )
 
         text = (response.choices[0].message.content or "").strip()
