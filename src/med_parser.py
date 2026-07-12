@@ -2,6 +2,7 @@
 
 import json
 import re
+from functools import lru_cache
 
 from openai import OpenAI
 
@@ -115,6 +116,43 @@ _ROUTE_PAT = (
 )
 
 
+@lru_cache(maxsize=1)
+def _known_drug_vocabulary() -> list[str]:
+    """Every drug name the clinical engine knows, longest first.
+
+    Sourced from the DDI database, Beers criteria, STOPP/START rules and the
+    brand-name aliases — i.e. exactly the vocabulary the rules can act on.
+    """
+    from src.drug_interactions import DRUG_ALIASES, _load_json, load_interaction_db
+
+    names: set[str] = set(DRUG_ALIASES)
+    for entry in load_interaction_db():
+        names.add(str(entry.get("drug_a", "")).lower())
+        names.add(str(entry.get("drug_b", "")).lower())
+
+    beers = _load_json("beers_criteria.json", [])
+    if isinstance(beers, list):
+        for c in beers:
+            names.update(d.lower() for d in c.get("drugs", []))
+
+    ss = _load_json("stopp_start.json", {})
+    if isinstance(ss, dict):
+        for section in ("stopp", "start"):
+            for rule in ss.get(section, []):
+                names.update(d.lower() for d in rule.get("drugs", []))
+
+    # Longest first so "insulin glargine" wins over "insulin".
+    return sorted((n for n in names if len(n) > 2), key=len, reverse=True)
+
+
+def _find_known_drug(text: str) -> str | None:
+    """Return the known drug mentioned in `text`, if any (whole-word match)."""
+    for drug in _known_drug_vocabulary():
+        if re.search(rf"(?<![a-z]){re.escape(drug)}(?![a-z])", text):
+            return drug
+    return None
+
+
 def parse_medications_llm(free_text: str) -> list[dict]:
     """Use MedGemma to parse free-text medication list into structured data."""
     client = OpenAI(base_url=config.MEDGEMMA_BASE_URL, api_key="not-needed")
@@ -163,7 +201,10 @@ def parse_medications_regex(free_text: str) -> list[dict]:
     """Regex fallback parser for common prescription formats."""
     results: list[dict] = []
     # Split on newlines, semicolons, commas (but not commas inside dose like "1,000mg")
-    lines = re.split(r"[;\n]+", free_text)
+    # Split on line breaks, semicolons, sentence ends and " and ", so a prose
+    # clinical note ("...on warfarin 5mg daily, amiodarone 200mg and lorazepam
+    # 1mg at bedtime.") breaks into medication-sized fragments too.
+    lines = re.split(r"[;\n]+|(?<=[a-z0-9])\.\s+|\s+\band\b\s+", free_text)
     # Further split on commas only if not part of a number
     expanded: list[str] = []
     for line in lines:
@@ -209,7 +250,22 @@ def parse_medications_regex(free_text: str) -> list[dict]:
         # Take only alphabetical words as the name
         name_words = re.findall(r"[a-zA-Z][a-zA-Z\-]+", name_part)
         if name_words:
-            entry["name"] = " ".join(name_words).lower()
+            candidate = " ".join(name_words).lower()
+
+            # Free-text clinical notes are prose, not a tidy list: a fragment
+            # like "hx atrial fibrillation currently on warfarin" must resolve
+            # to "warfarin", and "85yo gentleman" must resolve to nothing.
+            # Anchor on the known drug vocabulary rather than trusting the split.
+            known = _find_known_drug(candidate)
+            if known:
+                entry["name"] = known
+            elif dose_match:
+                # Unrecognised name but a real dose — likely a drug we don't
+                # index yet. Keep it (the novel-DDI predictor can still use it).
+                entry["name"] = candidate
+            else:
+                # Neither a known drug nor a dose: prose noise. Drop it.
+                continue
             results.append(entry)
 
     return results
