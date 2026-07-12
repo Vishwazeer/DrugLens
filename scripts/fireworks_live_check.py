@@ -24,28 +24,41 @@ def main() -> int:
         print("FAIL: FIREWORKS_API_KEY is not set (.env missing or empty).")
         return 1
 
-    print(f"Base URL: {config.FIREWORKS_BASE_URL}")
-    print(f"Model:    {config.GEMMA_MODEL}")
+    print(f"Base URL:     {config.FIREWORKS_BASE_URL}")
+    print(f"Report model: {config.REPORT_MODEL}")
+    print(f"JSON mode:    {config.REPORT_JSON_MODE}")
 
-    # --- Preflight 1: does the configured model id resolve? ---
+    # --- Preflight 1: can the configured model actually complete a request? ---
+    # A real mini-completion is authoritative; the /models list only shows an
+    # account's deployed models and can false-negative on served models.
     import requests
 
-    resp = requests.get(
-        f"{config.FIREWORKS_BASE_URL}/models",
-        headers={"Authorization": f"Bearer {config.FIREWORKS_API_KEY}"},
-        timeout=15,
+    probe = requests.post(
+        f"{config.FIREWORKS_BASE_URL}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {config.FIREWORKS_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config.REPORT_MODEL,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 5,
+        },
+        timeout=30,
     )
-    if resp.status_code != 200:
-        print(f"FAIL: /models returned HTTP {resp.status_code}: {resp.text[:300]}")
-        return 1
-    model_ids = {m.get("id", "") for m in resp.json().get("data", [])}
-    if config.GEMMA_MODEL in model_ids:
-        print("Model id verified against the live /models list.")
+    if probe.status_code == 200:
+        print("Model verified — completed a live request.")
     else:
-        gemma_like = sorted(m for m in model_ids if "gemma" in m.lower())
-        print(f"WARNING: {config.GEMMA_MODEL} not in /models list.")
-        print(f"Available Gemma models: {gemma_like or 'none found'}")
-        print("Update GEMMA_MODEL in .env to one of the above, then re-run.")
+        print(f"FAIL: model probe returned HTTP {probe.status_code}: {probe.text[:200]}")
+        avail = requests.get(
+            f"{config.FIREWORKS_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {config.FIREWORKS_API_KEY}"},
+            timeout=15,
+        )
+        if avail.status_code == 200:
+            ids = sorted(m.get("id", "") for m in avail.json().get("data", []))
+            print(f"Models available to this account: {ids or 'none'}")
+            print("Set REPORT_MODEL in .env to one of the above, then re-run.")
         return 1
 
     # --- Preflight 2: end-to-end report on the severe demo case ---
@@ -68,7 +81,7 @@ def main() -> int:
 
     report = result.get("risk_report", {})
     summary = report.get("summary", "")
-    print("\n--- GEMMA 4 REPORT ---")
+    print("\n--- CLOUD REPORT ---")
     print(f"Overall: {report.get('overall_risk_score', 'N/A')}")
     print(f"AI risk score: {report.get('risk_score_numeric', 'N/A')}/100")
     print(f"Summary: {summary[:300]}")

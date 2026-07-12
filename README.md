@@ -22,13 +22,13 @@ Older adults (aged 65+) represent 16% of the US population but consume over **30
 * Adverse Drug Events (ADEs) in the elderly lead to **3.5 million physician office visits** and **125,000 hospitalizations** annually.
 * Most of these events are preventable, resulting from known drug-drug interactions or age-inappropriate prescribing.
 
-**DrugLens** provides clinicians with an instant, structured audit of complex geriatric medication regimens, matching them against gold-standard clinical rulesets while leveraging local and remote Gemma models to parse text, predict structural interactions, and write clinical safety reports.
+**DrugLens** provides clinicians with an instant, structured audit of complex geriatric medication regimens, matching them against gold-standard clinical rulesets while leveraging local Gemma models (on AMD hardware) to parse text and predict structural interactions, plus a cloud model to write the clinical safety report.
 
 ---
 
-## 🏗️ Multi-Model Gemma Architecture
+## 🏗️ Multi-Model Architecture
 
-To maximize performance, privacy, and eligibility for the best AMD-hosted Gemma prize, DrugLens orchestrates **three distinct Gemma models**:
+DrugLens runs **Gemma where it matters most — on AMD hardware**: MedGemma 4B and TxGemma 2B execute locally on an AMD Instinct GPU (vLLM + ROCm) for private, on-prem clinical parsing and interaction prediction (the AMD-hosted Gemma story). A third, **configurable cloud model** on Fireworks AI handles the final narrative report synthesis. The pipeline degrades gracefully at every tier, so it runs end-to-end on CPU with no GPU at all.
 
 ```
                   ┌────────────────────────────────────────┐
@@ -51,7 +51,7 @@ To maximize performance, privacy, and eligibility for the best AMD-hosted Gemma 
               ┌───────────────────────┴───────────────────────┐
               ▼                                               ▼
 ┌───────────────────────────┐                   ┌───────────────────────────┐
-│   [Model 2] TxGemma 2B    │                   │   [Model 3] Gemma 4 31B   │
+│   [Model 2] TxGemma 2B    │                   │  [Model 3] Cloud Report   │
 │  Predicts novel DDIs from │                   │ Generates final clinical  │
 │  molecular SMILES strings │                   │ report & patient summary  │
 └───────────────────────────┘                   └───────────────────────────┘
@@ -62,8 +62,9 @@ To maximize performance, privacy, and eligibility for the best AMD-hosted Gemma 
    * **Role**: Clinical parsing. Extracts medication names, dosages, route, and frequency from raw, unstructured clinical entry notes.
 2. **TxGemma 2B (Local on AMD Instinct GPU / vLLM + ROCm)**
    * **Role**: Therapeutic interaction prediction. For drug pairs not present in our verified database, TxGemma resolves their molecular SMILES structures via PubChem and predicts potential structural interactions.
-3. **Gemma 4 31B-IT (Remote API via Fireworks AI on AMD Infrastructure)**
+3. **Cloud Report Model (Remote API via Fireworks AI on AMD Infrastructure)**
    * **Role**: Report orchestration and synthesis. Reviews the compiled list of interactions, Beers alerts, and STOPP/START flags to generate a professional clinical safety report and a simplified patient-friendly summary.
+   * **Model-agnostic**: set `REPORT_MODEL` to any chat model your Fireworks account serves (verify with `python scripts/fireworks_live_check.py`). Reasoning models are supported via Fireworks JSON mode (`REPORT_JSON_MODE=true`).
 
 ---
 
@@ -88,7 +89,7 @@ To ensure the application remains operational in resource-constrained environmen
 |---------|-------------------------|------------------------------------|
 | **Medication Parsing** | **MedGemma 4B** (Local vLLM) parses messy prescriptions | **Structured Regex Engine** splits and matches standard dosages |
 | **DDI Checking** | **TxGemma 2B** predicts novel interactions from molecular SMILES | **Verified Local DB** check (100+ clinical pairs indexed) |
-| **Risk Report** | **Gemma 4 31B** (Fireworks) writes custom clinical analysis | **Rule-Based Engine** compiles score & fills structured template |
+| **Risk Report** | **Cloud model** (Fireworks) writes custom clinical analysis | **Rule-Based Engine** compiles score & fills structured template |
 
 ---
 
@@ -96,7 +97,7 @@ To ensure the application remains operational in resource-constrained environmen
 
 ### 1. Local Python Run (CPU-Only / API Mode)
 
-Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for Gemma 4 reports. **Requires Python ≥ 3.10.**
+Perfect for rapid testing. This mode runs the Streamlit UI and local rules engine, utilizing the Fireworks API for the cloud AI report. **Requires Python ≥ 3.10.**
 
 ```bash
 # Clone the repository
@@ -212,7 +213,7 @@ DrugLens/
 │   ├── drug_interactions.py    # Deterministic rules engine (DDI/Beers/STOPP/START)
 │   ├── med_parser.py           # MedGemma parser + regex fallback
 │   ├── ddi_predictor.py        # TxGemma SMILES-based predictor
-│   ├── report_generator.py     # Gemma 4 report + rule-based fallback
+│   ├── report_generator.py     # Cloud report (Fireworks) + rule-based fallback
 │   └── analyzer.py             # Orchestrator pipeline + risk scoring
 ├── scripts/
 │   ├── smoke_check.py          # Offline demo-case assertion script

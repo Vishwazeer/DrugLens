@@ -342,7 +342,9 @@ section[data-testid="stSidebar"] .block-container { padding-top: 1.6rem; }
 
 
 # --- Header ---
-st.markdown("""
+# The 3rd (cloud) model is configurable; show whatever Fireworks model is set.
+_report_label = config.REPORT_MODEL.split("/")[-1]
+st.markdown(f"""
 <div class="dl-hero">
     <div class="dl-hero-top">
         <div>
@@ -352,7 +354,7 @@ st.markdown("""
         <div class="dl-chips">
             <span class="dl-chip"><b>MedGemma 4B</b>&nbsp;· parse</span>
             <span class="dl-chip"><b>TxGemma 2B</b>&nbsp;· predict</span>
-            <span class="dl-chip"><b>Gemma 4 31B</b>&nbsp;· report</span>
+            <span class="dl-chip"><b>{_report_label}</b>&nbsp;· report</span>
             <span class="dl-chip red">AMD Instinct · ROCm</span>
             <span class="dl-chip red">Fireworks AI</span>
         </div>
@@ -376,8 +378,8 @@ with st.sidebar:
                         help="Parse medications with MedGemma AI. Disable for regex-only parsing.")
     use_txgemma = st.toggle("TxGemma predictions", value=config.USE_TXGEMMA,
                             help="Predict unknown drug interactions with TxGemma.")
-    use_gemma4 = st.toggle("Gemma 4 reports", value=config.USE_GEMMA4,
-                           help="Generate AI-powered reports with Gemma 4 via Fireworks AI.")
+    use_gemma4 = st.toggle("Cloud AI reports", value=config.USE_GEMMA4,
+                           help="Generate the narrative safety report with the cloud model on Fireworks AI.")
 
     st.markdown('<div class="side-label" style="margin-top:1.4rem;">Demo cases</div>',
                 unsafe_allow_html=True)
@@ -789,7 +791,7 @@ if "results" in st.session_state:
             if ai_score is not None:
                 st.markdown(f"#### 🤖 AI risk score: {ai_score}/100")
                 st.caption(
-                    "Gemma 4's own 0–100 assessment — complements the rule-based "
+                    "The cloud model's own 0–100 assessment — complements the rule-based "
                     "risk level shown in the overview card above."
                 )
 
@@ -825,7 +827,7 @@ if "results" in st.session_state:
                 for rec in report["recommendations"]:
                     st.markdown(f"- {rec}")
         else:
-            st.info("Enable Gemma 4 in settings for AI-powered reports, or run analysis first.")
+            st.info("Enable Cloud AI reports in settings for AI-powered reports, or run analysis first.")
 
         if results.get("patient_summary"):
             st.markdown("#### 👤 Patient-Friendly Summary")
@@ -855,6 +857,6 @@ st.markdown("""
 <div class="dl-footer">
     <p>DRUGLENS — AMD DEVELOPER HACKATHON: ACT II · TRACK 3 UNICORN</p>
     <p>FOR EDUCATIONAL AND RESEARCH PURPOSES ONLY · NOT A SUBSTITUTE FOR PROFESSIONAL MEDICAL ADVICE</p>
-    <p>MEDGEMMA · TXGEMMA · GEMMA 4 · AMD DEVELOPER CLOUD · FIREWORKS AI</p>
+    <p>MEDGEMMA · TXGEMMA · CLOUD SYNTHESIS · AMD DEVELOPER CLOUD · FIREWORKS AI</p>
 </div>
 """, unsafe_allow_html=True)

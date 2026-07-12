@@ -209,9 +209,9 @@ def generate_risk_report(
     predicted_ddis: list[dict],
     patient_info: dict,
 ) -> dict:
-    """Generate comprehensive risk report using Gemma 4 via Fireworks.
+    """Generate a comprehensive risk report via the Fireworks cloud model.
 
-    Falls back to rule-based report if the API is unavailable.
+    Falls back to a rule-based report if the API is unavailable.
     """
     context = _build_context_block(
         medications, interactions, beers_alerts, stopp_start, predicted_ddis, patient_info
@@ -235,14 +235,20 @@ def generate_risk_report(
 
     try:
         client = _fireworks_client()
+        # JSON mode forces a clean object from reasoning models that would
+        # otherwise emit chain-of-thought before the JSON.
+        extra: dict = {"response_format": {"type": "json_object"}} if config.REPORT_JSON_MODE else {}
         response = client.chat.completions.create(
-            model=config.GEMMA_MODEL,
+            model=config.REPORT_MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": context},
             ],
             temperature=0.3,
-            max_tokens=2048,
+            # Headroom for reasoning models that emit hidden chain-of-thought
+            # before the JSON — too small a budget truncates the report object.
+            max_tokens=config.REPORT_MAX_TOKENS,
+            **extra,
         )
 
         raw = response.choices[0].message.content or ""
@@ -270,7 +276,8 @@ def generate_patient_summary(
 ) -> str:
     """Generate plain-English patient-friendly summary.
 
-    Uses Gemma 4 if available, otherwise builds from report data.
+    Uses the Fireworks cloud model if available, otherwise builds from
+    report data.
     """
     # Template fallback
     def _template_summary() -> str:
@@ -316,7 +323,7 @@ def generate_patient_summary(
     try:
         client = _fireworks_client()
         response = client.chat.completions.create(
-            model=config.GEMMA_MODEL,
+            model=config.REPORT_MODEL,
             messages=[
                 {
                     "role": "system",

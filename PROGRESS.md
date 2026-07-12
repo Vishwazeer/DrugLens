@@ -108,7 +108,28 @@ Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs inpu
 
 **Security audit (pre-push):** `.env` absent from entire git history and index · key-pattern grep matches only literal `"not-needed"` placeholders · `.gitignore` + `.dockerignore` both cover `.env` · no credentials in any tracked file.
 
-**Outstanding (needs user):** Fireworks live preflight requires FIREWORKS_API_KEY in `.env` — run `python scripts\fireworks_live_check.py` before demo day to confirm the `gemma-4-31b-it` model id resolves (the script lists available Gemma models if it doesn't; swap GEMMA_MODEL in `.env` — no code change needed). The rule-based fallback keeps the app fully functional without it.
+**Outstanding (needs user):** ~~Fireworks live preflight~~ — **DONE in Phase 7** (see below).
+
+---
+
+## Phase 7 — Fireworks live verification + report-model fix — ✅
+
+**Trigger:** user supplied a real FIREWORKS_API_KEY and asked to verify the live API.
+
+**What the live check found:**
+- Key authenticates and connectivity is fine.
+- The configured `gemma-4-31b-it` (and every Gemma/Llama id) returns **404 "not deployed"** on this Fireworks account — no Gemma model is available. Account serves only: `deepseek-v4-pro`, `glm-5p1`, `glm-5p2`, `kimi-k2p6`, `gpt-oss-120b`, `flux-1-schnell`.
+- These are **reasoning models** that emit hidden chain-of-thought; with `max_tokens=2048` the report JSON was intermittently truncated → silent fallback (patient summary worked, structured report didn't).
+
+**What was fixed (user chose deepseek-v4-pro):**
+- `config.py`: `GEMMA_MODEL` → **`REPORT_MODEL`** (back-compat alias kept), default now `deepseek-v4-pro`; added `REPORT_JSON_MODE` (Fireworks structured-JSON mode, forces a clean object from reasoning models) and `REPORT_MAX_TOKENS=4096` (headroom so reasoning + JSON both fit).
+- `report_generator.py`: report call uses `REPORT_MODEL`, passes `response_format={"type":"json_object"}`, and the larger token budget.
+- `fireworks_live_check.py`: model validation now does a real mini-completion (authoritative) instead of the `/models`-list membership check (which false-negatives on served models).
+- **Honest relabeling:** the cloud layer is no longer branded "Gemma 4" (it isn't Gemma on this account). MedGemma 4B + TxGemma 2B on the AMD pod remain the real Gemma-on-AMD story. UI header chip shows the actual configured model dynamically; sidebar toggle → "Cloud AI reports"; footer/README/architecture updated. `.env`/`.env.example` use `REPORT_MODEL`.
+
+**Verification evidence:** `ruff` clean · `pytest -q` 73 passed · `scripts\fireworks_live_check.py` **exit 0** with a genuinely live report (LLM summary, AI score 90/100, 4 deprescribing suggestions, 7 recommendations); report path run 3× → LIVE 3/3 (no fallback), 0 errors.
+
+**Note for demo day:** the live AI report now works on the provided Fireworks account. If you switch accounts, run `python scripts\fireworks_live_check.py` to confirm `REPORT_MODEL` is served (it prints the account's available models on failure). The rule-based fallback still keeps the app functional if the API is ever down.
 
 ---
 
