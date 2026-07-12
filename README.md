@@ -1,7 +1,7 @@
 # 💊 DrugLens — AI-Powered Geriatric Polypharmacy Safety Auditor
 
 <p align="center">
-  <img src="Assets/Generated output dashboard.png" alt="DrugLens Dashboard" width="900"/>
+  <img src="Assets/cover.png" alt="DrugLens Cover Banner" width="900"/>
 </p>
 
 <p align="center">
