@@ -379,8 +379,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Results Scrollable Area */}
-          <div className="flex-1 overflow-y-auto px-8 pt-7 pb-44 flex flex-col gap-6 custom-scrollbar">
+          {/* Results Scrollable Area.
+              pb must clear the floating input bar below (~240px) or the last
+              card's controls (e.g. the Generate button) sit under it and become
+              unclickable even at full scroll. */}
+          <div className="flex-1 overflow-y-auto px-8 pt-7 pb-72 flex flex-col gap-6 custom-scrollbar">
 
             {!result && !isAnalyzing && (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-center pb-20">
