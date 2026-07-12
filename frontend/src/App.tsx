@@ -51,6 +51,35 @@ interface Routing {
   model?: string;
 }
 
+/** An interaction predicted for a pair with NO curated-database entry. */
+interface NovelPrediction {
+  drug_a: string;
+  drug_b: string;
+  predicted_interaction: string;
+  severity: string;
+  confidence: string;
+  mechanism?: string;
+  recommendation?: string;
+  smiles_used?: boolean;
+}
+
+interface NovelMeta {
+  pairs_in_database: number;
+  pairs_evaluated: number;
+  model: string;
+}
+
+/** Live engine capabilities, read from the backend's loaded rulesets. */
+interface EngineStats {
+  ddi_pairs: number;
+  beers_rules: number;
+  stopp_rules: number;
+  start_rules: number;
+  stopp_start_total: number;
+  conditions: number;
+  median_engine_latency_ms: number;
+}
+
 interface AnalysisResult {
   risk_level: string;
   risk_score: number;
@@ -72,6 +101,7 @@ const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 export default function App() {
   const [demoCases, setDemoCases] = useState<DemoCase[]>([]);
   const [availableConditions, setAvailableConditions] = useState<string[]>([]);
+  const [engineStats, setEngineStats] = useState<EngineStats | null>(null);
 
   // Patient Context State
   const [medicationText, setMedicationText] = useState('');
@@ -95,6 +125,12 @@ export default function App() {
   const [isFetchingAlts, setIsFetchingAlts] = useState(false);
   const [altsRequested, setAltsRequested] = useState(false);
 
+  // Novel-DDI prediction state (pairs absent from the curated database)
+  const [novelPredictions, setNovelPredictions] = useState<NovelPrediction[]>([]);
+  const [novelMeta, setNovelMeta] = useState<NovelMeta | null>(null);
+  const [isPredictingNovel, setIsPredictingNovel] = useState(false);
+  const [novelRequested, setNovelRequested] = useState(false);
+
   // Modals & Settings
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showSafetyModal, setShowSafetyModal] = useState(false);
@@ -104,6 +140,9 @@ export default function App() {
   useEffect(() => {
     axios.get(`${API}/api/demo-cases`).then(res => setDemoCases(res.data));
     axios.get(`${API}/api/conditions`).then(res => setAvailableConditions(res.data));
+    // Engine stats are read live from the backend's rulesets, never hardcoded,
+    // so the numbers shown in the UI always match data/*.json.
+    axios.get(`${API}/api/engine-stats`).then(res => setEngineStats(res.data)).catch(() => {});
   }, []);
 
   const resetState = () => {
@@ -117,6 +156,9 @@ export default function App() {
     setStreamRoute(null);
     setAlternatives([]);
     setAltsRequested(false);
+    setNovelPredictions([]);
+    setNovelMeta(null);
+    setNovelRequested(false);
     if (streamRef.current) { streamRef.current.close(); }
   };
 
@@ -130,6 +172,9 @@ export default function App() {
     setStreamRoute(null);
     setAlternatives([]);
     setAltsRequested(false);
+    setNovelPredictions([]);
+    setNovelMeta(null);
+    setNovelRequested(false);
   };
 
   const handleConditionToggle = (condition: string) => {
@@ -155,6 +200,9 @@ export default function App() {
     setStreamRoute(null);
     setAlternatives([]);
     setAltsRequested(false);
+    setNovelPredictions([]);
+    setNovelMeta(null);
+    setNovelRequested(false);
     if (streamRef.current) { streamRef.current.close(); }
 
     try {
@@ -210,6 +258,25 @@ export default function App() {
       }
       setIsStreaming(false);
     }).catch(() => setIsStreaming(false));
+  };
+
+  const fetchNovel = async () => {
+    if (!medicationText.trim()) return;
+    setIsPredictingNovel(true);
+    setNovelRequested(true);
+    try {
+      const response = await axios.post(`${API}/api/analyze/predict-novel`, buildPayload());
+      setNovelPredictions(response.data.predictions || []);
+      setNovelMeta({
+        pairs_in_database: response.data.pairs_in_database,
+        pairs_evaluated: response.data.pairs_evaluated,
+        model: response.data.model,
+      });
+    } catch {
+      setNovelPredictions([]);
+    } finally {
+      setIsPredictingNovel(false);
+    }
   };
 
   const fetchAlternatives = async () => {
@@ -370,7 +437,7 @@ export default function App() {
                     : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${streamRoute === 'cloud_llm' ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500'}`} />
-                  {streamRoute === 'cloud_llm' ? 'AMD MI300X · Fireworks AI' : 'Edge Engine · Offline'}
+                  {streamRoute === 'cloud_llm' ? 'Cloud LLM · Fireworks AI' : 'Edge Engine · Offline · 0 tokens'}
                 </div>
               )}
               <button onClick={() => setShowSettingsModal(true)} className="w-9 h-9 rounded-xl bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 hover:text-gray-700 transition-all">
@@ -415,7 +482,7 @@ export default function App() {
               <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-3 duration-500">
 
                 {/* Print-only patient header */}
-                <div className="hidden print:block mb-6 pb-4 border-b-2 border-teal-800">
+                <div className="print-header hidden print:block mb-6 pb-4 border-b-2 border-teal-800">
                   <div className="flex items-center justify-between">
                     <div>
                       <h1 className="text-2xl font-bold text-teal-800">DrugLens Clinical Safety Audit</h1>
@@ -448,6 +515,17 @@ export default function App() {
                       <span className="text-xs text-gray-700 font-medium">{selectedConditions.join(', ')}</span>
                     </div>
                   )}
+
+                  {/* Disclaimer — must travel with the exported clinical report */}
+                  <div className="mt-3 p-2.5 rounded-lg border border-amber-200 bg-amber-50">
+                    <span className="text-[9px] font-bold uppercase text-amber-700 block">Disclaimer</span>
+                    <span className="text-[10px] text-amber-900 leading-snug">
+                      Decision-support output for educational and research purposes only. Generated by an
+                      automated rules engine (AGS Beers 2023, STOPP/START v3, curated DDI database) with
+                      AI-generated narrative. Not a certified diagnostic device and not a substitute for
+                      professional clinical judgement. Verify all findings before acting.
+                    </span>
+                  </div>
                 </div>
 
                 {/* Risk Banner */}
@@ -468,7 +546,7 @@ export default function App() {
                       )}
                       <div className="flex items-center justify-end gap-1 mt-2">
                         <CheckCircle className="w-3.5 h-3.5 opacity-80" />
-                        <span className="text-[10px] opacity-80">Verified</span>
+                        <span className="text-[10px] opacity-80">Deterministic · rule-based</span>
                       </div>
                     </div>
                   </div>
@@ -584,9 +662,91 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Clinical Alternatives CTA + Table */}
+                {/* Novel-DDI prediction: pairs with NO entry in the curated database.
+                    This is the "novel drug blindspot" a lookup table cannot cover. */}
+                {result && result.parsed_medications.length >= 2 && (
+                  <div className="p-5 rounded-2xl bg-white border border-indigo-100 shadow-sm print:hidden">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="w-6 h-6 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <Network className="w-3.5 h-3.5 text-indigo-600" />
+                      </div>
+                      <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider">Novel Interaction Prediction</span>
+                      <span className="text-[9px] text-indigo-500 ml-1 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">Not in any database</span>
+                      {novelMeta && (
+                        <span className="ml-auto text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                          {novelPredictions.length}
+                        </span>
+                      )}
+                    </div>
+
+                    {!novelRequested && (
+                      <div className="flex items-center gap-3">
+                        <p className="text-xs text-gray-500 leading-relaxed flex-1">
+                          Lookup tables only know pairs someone already indexed. Evaluate this patient's
+                          <strong> un-indexed</strong> drug pairs against their molecular structures (PubChem SMILES)
+                          to surface interactions no database contains.
+                        </p>
+                        <button
+                          onClick={fetchNovel}
+                          className="shrink-0 px-4 py-2 bg-gradient-to-r from-indigo-500 to-blue-600 text-white text-xs font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all flex items-center gap-2"
+                        >
+                          <Network className="w-3.5 h-3.5" /> Predict
+                        </button>
+                      </div>
+                    )}
+
+                    {isPredictingNovel && (
+                      <div className="flex items-center gap-2 text-xs text-gray-400 py-3">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Evaluating un-indexed pairs against molecular structures...
+                      </div>
+                    )}
+
+                    {novelRequested && !isPredictingNovel && novelMeta && (
+                      <p className="text-[10px] text-gray-400 mb-3">
+                        {novelMeta.pairs_in_database} pair(s) matched the curated database ·{' '}
+                        <strong className="text-indigo-600">{novelMeta.pairs_evaluated} un-indexed pair(s)</strong> sent for prediction ·
+                        model: {novelMeta.model}
+                      </p>
+                    )}
+
+                    {novelRequested && !isPredictingNovel && novelPredictions.length === 0 && (
+                      <p className="text-xs text-gray-400">No additional interactions predicted for the un-indexed pairs.</p>
+                    )}
+
+                    <div className="space-y-2">
+                      {novelPredictions.map((p, i) => (
+                        <div key={i} className="p-3 rounded-xl bg-indigo-50/40 border border-indigo-100">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg uppercase ${
+                              p.severity === 'major' ? 'bg-red-100 text-red-700'
+                              : p.severity === 'moderate' ? 'bg-amber-100 text-amber-700'
+                              : 'bg-gray-100 text-gray-600'
+                            }`}>{p.severity}</span>
+                            <span className="text-xs font-bold text-gray-800">{p.drug_a} ↔ {p.drug_b}</span>
+                            <span className="text-[9px] text-gray-400">confidence: {p.confidence}</span>
+                            {p.smiles_used && (
+                              <span className="text-[9px] text-indigo-500 bg-white px-1.5 py-0.5 rounded border border-indigo-100">SMILES-grounded</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed">{p.predicted_interaction}</p>
+                          {p.mechanism && <p className="text-[10px] text-gray-400 mt-1"><strong>Mechanism:</strong> {p.mechanism}</p>}
+                          {p.recommendation && <p className="text-[10px] text-indigo-600 mt-0.5">{p.recommendation}</p>}
+                        </div>
+                      ))}
+                    </div>
+
+                    {novelPredictions.length > 0 && (
+                      <p className="text-[9px] text-gray-400 mt-3 italic">
+                        AI-predicted, not database-confirmed. Treat as a prompt for pharmacist review, not a verified finding.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Clinical Alternatives CTA + Table — interactive only, excluded from the PDF export */}
                 {result && ['HIGH', 'MODERATE'].includes(result.risk_level) && (
-                  <div className="p-5 rounded-2xl bg-white border border-purple-100 shadow-sm">
+                  <div className="p-5 rounded-2xl bg-white border border-purple-100 shadow-sm print:hidden">
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
                         <Sparkles className="w-3.5 h-3.5 text-purple-600" />
@@ -612,7 +772,7 @@ export default function App() {
                     {isFetchingAlts && (
                       <div className="flex items-center gap-2 text-purple-600 text-sm mt-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating alternatives via Fireworks AI (AMD MI300X)...
+                        Generating alternatives via Fireworks AI...
                       </div>
                     )}
 
@@ -678,15 +838,16 @@ export default function App() {
           <div className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-md w-full border border-gray-100 relative" onClick={e => e.stopPropagation()}>
             <button className="absolute top-5 right-5 text-gray-300 hover:text-gray-600 transition-colors" onClick={() => setShowStatsModal(false)}><X className="w-5 h-5" /></button>
             <h3 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2"><Cpu className="w-5 h-5 text-teal-dark" /> Engine Statistics</h3>
-            <p className="text-xs text-gray-400 mb-6">Live offline engine capabilities — no API call made</p>
+            <p className="text-xs text-gray-400 mb-6">Read live from the loaded rulesets — every number below is verifiable in <code>data/*.json</code></p>
             <div className="space-y-3">
               {[
-                ['Drug-Drug Interaction Pairs', '1,403'],
-                ['Beers Criteria Rules (2023)', '142'],
-                ['STOPP/START Criteria v3', '82'],
-                ['Avg Analysis Latency', '~35ms'],
-                ['Routing Architecture', 'Edge + Cloud Hybrid'],
-                ['LLM Backend', 'AMD MI300X · Fireworks AI'],
+                ['Drug-Drug Interaction Pairs', engineStats ? String(engineStats.ddi_pairs) : '…'],
+                ['Beers Criteria Rules (2023)', engineStats ? String(engineStats.beers_rules) : '…'],
+                ['STOPP/START Criteria v3', engineStats ? `${engineStats.stopp_rules} + ${engineStats.start_rules}` : '…'],
+                ['Comorbidities Modelled', engineStats ? String(engineStats.conditions) : '…'],
+                ['Deterministic Engine Latency (measured)', engineStats ? `${engineStats.median_engine_latency_ms} ms` : '…'],
+                ['Routing Architecture', 'Edge + Cloud Hybrid (0 tokens on LOW/MINIMAL)'],
+                ['Cloud LLM Backend', engineStats ? `Fireworks AI · ${result?.routing?.model ?? 'deepseek-v4-pro'}` : 'Fireworks AI'],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
                   <span className="text-sm text-gray-500">{label}</span>
@@ -707,13 +868,13 @@ export default function App() {
           <div className="bg-white rounded-[2rem] shadow-2xl p-8 max-w-md w-full border border-gray-100 relative" onClick={e => e.stopPropagation()}>
             <button className="absolute top-5 right-5 text-gray-300 hover:text-gray-600 transition-colors" onClick={() => setShowSafetyModal(false)}><X className="w-5 h-5" /></button>
             <h3 className="text-xl font-bold text-gray-800 mb-1 flex items-center gap-2"><Shield className="w-5 h-5 text-teal-dark" /> Risk Methodology</h3>
-            <p className="text-sm text-gray-500 mb-5 leading-relaxed">DrugLens uses a proprietary multi-database scoring engine across 3 clinical frameworks simultaneously.</p>
+            <p className="text-sm text-gray-500 mb-5 leading-relaxed">DrugLens scores every regimen against 3 published clinical frameworks simultaneously — AGS Beers 2023, STOPP/START v3, and a curated DDI database — using fully transparent, auditable weights.</p>
             <div className="space-y-3 mb-5">
               {[
-                { label: 'HIGH', color: 'red', desc: 'Score ≥ 12. Urgent clinical review required.', pts: 'Major DDI = 3pts' },
-                { label: 'MODERATE', color: 'amber', desc: 'Score 5–11. Close monitoring essential.', pts: 'Moderate DDI = 2pts' },
-                { label: 'LOW', color: 'blue', desc: 'Score 1–4. Routine pharmacist check.', pts: 'Beers Flag = 2pts' },
-                { label: 'MINIMAL', color: 'emerald', desc: 'Score 0. No significant flags found.', pts: 'STOPP Flag = 1pt' },
+                { label: 'HIGH', color: 'red', desc: 'Score ≥ 12. Urgent clinical review required.', pts: 'Major DDI = 3 pts' },
+                { label: 'MODERATE', color: 'amber', desc: 'Score 5–11. Close monitoring essential.', pts: 'Moderate DDI = 2 pts' },
+                { label: 'LOW', color: 'blue', desc: 'Score 1–4. Routine pharmacist check.', pts: 'Beers / STOPP flag = 2 pts (high severity)' },
+                { label: 'MINIMAL', color: 'emerald', desc: 'Score 0. No significant flags found.', pts: 'Beers / STOPP flag = 1 pt (moderate/low)' },
               ].map(({ label, color, desc, pts }) => (
                 <div key={label} className={`flex items-center gap-3 p-3 rounded-xl bg-${color}-50 border border-${color}-100`}>
                   <div className={`w-20 h-7 rounded-full bg-${color}-100 text-${color}-700 text-[10px] font-black flex items-center justify-center border border-${color}-200`}>{label}</div>
@@ -725,7 +886,7 @@ export default function App() {
               ))}
             </div>
             <div className="p-3 rounded-xl bg-gray-50 text-[10px] text-gray-500 leading-relaxed">
-              MODERATE/HIGH cases escalate automatically to the Fireworks cloud model (on AMD Instinct MI300X) for a streaming clinical narrative.
+              MODERATE/HIGH cases escalate automatically to the Fireworks cloud model for a streaming clinical narrative. LOW/MINIMAL cases are answered entirely offline — zero LLM tokens spent.
             </div>
           </div>
         </div>

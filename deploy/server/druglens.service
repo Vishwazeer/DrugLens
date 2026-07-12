@@ -1,0 +1,30 @@
+[Unit]
+Description=DrugLens — polypharmacy risk analyzer (FastAPI + React)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=druglens
+Group=druglens
+WorkingDirectory=/opt/druglens
+
+# Secrets (FIREWORKS_API_KEY etc). Root-owned, chmod 600, never in git.
+EnvironmentFile=/etc/druglens/druglens.env
+
+# Binds to localhost only — Caddy terminates TLS and proxies to it.
+# To serve directly without a reverse proxy, change to --host 0.0.0.0.
+ExecStart=/opt/druglens/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8000
+
+Restart=always
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/druglens
+
+[Install]
+WantedBy=multi-user.target

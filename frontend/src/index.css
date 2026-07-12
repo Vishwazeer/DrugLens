@@ -9,11 +9,23 @@
 }
 
 @media print {
+  /* Zero page margin suppresses the browser's own header/footer (the
+     "7/12/26, 7:10 PM  frontend ... 172.105.40.61:8000  1/5" chrome).
+     We supply our own margins on the body instead. */
+  @page {
+    margin: 0;
+  }
+
   body, html, #root {
     background: white !important;
     color: black !important;
     overflow: visible !important;
     height: auto !important;
+    margin: 0 !important;
+  }
+
+  body {
+    padding: 14mm 12mm !important;   /* our own page margins */
   }
 
   /* Force container elements to be full-bleed */
@@ -29,12 +41,40 @@
     margin: 0 !important;
   }
 
-  /* Make sure every card stands out and doesn't get split awkwardly */
+  /* Cards: flatten chrome for print.
+     NOTE: deliberately NOT using `page-break-inside: avoid` here. The AI
+     narrative card is taller than a page, so forcing it to stay whole pushed
+     it entirely onto page 2 and left page 1 blank below the header. Letting
+     long cards flow across pages is what keeps the export gap-free. */
   .shadow-sm, .shadow-md, .shadow-lg {
     box-shadow: none !important;
     border: 1px solid #e5e7eb !important;
-    page-break-inside: avoid !important;
-    margin-bottom: 1.5rem !important;
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+    margin-bottom: 1rem !important;
+  }
+
+  /* Keep the report header glued to the content that follows it */
+  .print-header {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+
+  /* Trailing whitespace creates a phantom blank final page. Strip any
+     leftover height/margin from the last elements and from min-height
+     containers so the document ends where the content ends. */
+  [class*="min-h-"] {
+    min-height: 0 !important;
+  }
+
+  .shadow-sm:last-child,
+  .shadow-md:last-child,
+  .shadow-lg:last-child {
+    margin-bottom: 0 !important;
+  }
+
+  body {
+    padding-bottom: 0 !important;
   }
 
   /* Custom grid columns for print */

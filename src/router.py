@@ -1,17 +1,17 @@
 """Token-Efficient Routing Agent.
 
-Implements a smart two-tier routing strategy:
-  - LOW / MINIMAL risk → local deterministic engine only (0 tokens spent)
-  - MODERATE / HIGH risk → escalate to the Fireworks cloud model for deep analysis
+Implements a two-tier routing strategy:
+  - LOW / MINIMAL risk → local deterministic engine only (0 LLM tokens spent)
+  - MODERATE / HIGH risk → escalate to the Fireworks cloud model for synthesis
 
-This architecture maximises compute efficiency by reserving expensive GPU
-inference (AMD Instinct MI300X via Fireworks AI) for the cases that actually
-need it, while serving routine checks entirely offline in <50 ms. The cloud
-model is configurable via ``config.REPORT_MODEL``.
+This reserves paid cloud inference for the cases that actually need it and
+answers routine checks entirely offline. The cloud model is configurable via
+``config.REPORT_MODEL``.
 """
 
 import json
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator
 
@@ -38,21 +38,22 @@ def _fireworks_client() -> OpenAI:
     return OpenAI(base_url=config.FIREWORKS_BASE_URL, api_key=config.FIREWORKS_API_KEY)
 
 
-# Gemma is preferred when the account serves it; config.REPORT_MODEL is the
-# fallback. Accounts without Gemma would otherwise re-probe (and 404 on) the
-# Gemma ids on every request, so the first model that works is remembered and
-# tried first from then on.
-_GEMMA_PREFERRED = [
-    "accounts/fireworks/models/gemma-4-31b-it",
-    "accounts/fireworks/models/gemma-2-9b-it",
+# Optional ordered preference list of model ids to try before REPORT_MODEL.
+# Empty by default: previously this hard-coded Gemma ids that are NOT served by
+# our Fireworks account, so every request emitted two 404s ("Model not found")
+# before silently falling through. That produced misleading logs and wasted a
+# round-trip per call for no benefit. Set REPORT_MODEL_FALLBACKS (comma-
+# separated) if you have an account that genuinely serves other models.
+_PREFERRED_MODELS = [
+    m.strip() for m in os.getenv("REPORT_MODEL_FALLBACKS", "").split(",") if m.strip()
 ]
 _working_model: str | None = None
 
 
 def _candidate_models() -> list[str]:
-    """Ordered models to try: the known-good one first, then Gemma, then fallback."""
+    """Ordered models to try: known-good first, then any configured preferences."""
     ordered = ([_working_model] if _working_model else []) + [
-        *_GEMMA_PREFERRED,
+        *_PREFERRED_MODELS,
         config.REPORT_MODEL,
     ]
     seen: set[str] = set()
@@ -124,7 +125,6 @@ async def stream_clinical_narrative(
 
     Yields raw text chunks as they arrive from the API (SSE-style).
     Falls back to a pre-built summary if the API is unavailable.
-    Prioritizes Gemma models, falling back to other models on failure.
     """
     if not config.FIREWORKS_API_KEY:
         yield "AI narrative unavailable: no API key configured. The deterministic analysis above is complete."

@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Clinical Decision Support for Safer Prescribing in Elderly Patients</strong><br/>
-  <em>Deterministic Clinical Rules + AI Synthesis on AMD Instinct GPUs</em>
+  <em>Deterministic Clinical Rules + Cloud AI Synthesis</em>
 </p>
 
 <p align="center">
@@ -20,11 +20,41 @@
 
 ---
 
+## 🌐 Live Demo
+
+**http://172.105.40.61:8000** — deployed, running, open. No signup.
+
+Try **Case 1** (it stays quiet — no false alarms), then set **eGFR to 25** and re-run to watch the renal safety rules activate live.
+
 ## 🎬 Demo Video
 
-https://github.com/user-attachments/assets/demo-video.mp4
+📹 [`Demo video.mp4`](./Demo%20video.mp4) — full walkthrough (in-repo).
 
-> *Full walkthrough: Patient context setup → Analysis → Drug Interactions → Beers Criteria → STOPP/START → AI Narrative Streaming → Export → AI Prescribing Alternatives*
+> *Patient context setup → Analysis → Drug Interactions → Beers Criteria → STOPP/START → AI Narrative Streaming → Export → AI Prescribing Alternatives*
+
+---
+
+## 🔬 Honest Scope — what actually runs in the public demo
+
+Being precise about this is worth more to us than a bigger-sounding claim.
+
+| Component | Status |
+|---|---|
+| **Deterministic clinical engine** (102 DDIs · 61 Beers · 38 STOPP + 20 START) | ✅ **Live.** Runs on every request, before and independently of any LLM. Median **2.8 ms** — *measured*, exposed at `GET /api/engine-stats`. |
+| **Token-efficient routing** (LOW/MINIMAL answered offline — **0 LLM tokens**) | ✅ **Live.** 2 of our 3 demo cases never invoke a GPU at all. |
+| **Cloud synthesis** — streaming clinical narrative + JSON prescribing alternatives | ✅ **Live**, via Fireworks AI (`deepseek-v4-pro`, configurable). |
+| **MedGemma 4B / TxGemma 2B on AMD Instinct (vLLM + ROCm)** | ⚠️ **Code-complete but NOT enabled.** The public demo is hosted on a CPU-only VM, and the Fireworks account available to us serves **no Gemma model**. The GPU path ships (`docker-compose --profile gpu`, `setup_amd_pod.sh`) and is syntax-validated, but we had no MI300X access — so it is **unbenchmarked and we make no performance claim for it**. |
+
+**Every number in the app's Engine Stats panel is read live from the loaded rulesets** (`GET /api/engine-stats`) — never hardcoded — so it always matches `data/*.json`.
+
+---
+
+## ✅ What makes this technically defensible
+
+- **True combination-rule logic.** "Opioid **+** benzodiazepine" and the renal "triple whammy" fire **only when every component is present** — not when any single drug matches. Implemented as AND-semantics over `combination_groups` / `min_matches`, and locked by tests (`test_triple_whammy_requires_all_three_groups`, `test_opioid_benzo_combination_fires_only_together`). Most naive rule engines get this wrong and drown clinicians in false positives.
+- **eGFR-gated renal rules.** Metformin/NSAID/digoxin renal alerts fire only below their real eGFR thresholds — demonstrable live by changing one field.
+- **Zero clinical rules are ever skipped.** The deterministic engine runs unconditionally; the LLM only *narrates* findings it cannot invent or suppress.
+- **75 offline tests**, network-blocked, green in CI (ruff → pytest → demo-case smoke check).
 
 ---
 
@@ -56,7 +86,7 @@ https://github.com/user-attachments/assets/demo-video.mp4
   <img src="Assets/Drug-drug interaction.png" alt="Drug-Drug Interactions" width="700"/>
 </p>
 
-- Checks **all medication pairs** against a curated database of **200+ clinically significant drug-drug interactions**
+- Checks **all medication pairs** against a curated database of **102 clinically significant drug-drug interactions**
 - Severity-ranked results: **MAJOR** → MODERATE → MINOR
 - Displays pharmacological mechanism, clinical effect, and management recommendations
 - Covers critical combinations: warfarin + NSAIDs, opioids + benzodiazepines, triple whammy (ACE/ARB + diuretic + NSAID)
@@ -66,7 +96,7 @@ https://github.com/user-attachments/assets/demo-video.mp4
   <img src="Assets/Beers criteria.png" alt="Beers Criteria" width="700"/>
 </p>
 
-- Full implementation of the **American Geriatrics Society (AGS) Beers Criteria 2023** — the gold standard for identifying Potentially Inappropriate Medications (PIMs) in older adults
+- Implements **61 rules drawn from the American Geriatrics Society (AGS) Beers Criteria 2023** — the reference standard for identifying Potentially Inappropriate Medications (PIMs) in older adults
 - **50+ evidence-based rules** across: Anticholinergics, CNS agents, Cardiovascular, Endocrine, GI, Pain/NSAIDs, Drug-Drug Interaction criteria
 - Each flag includes: recommendation level, clinical rationale, quality of evidence, and strength of recommendation
 - Age-aware and condition-aware matching
@@ -87,7 +117,7 @@ https://github.com/user-attachments/assets/demo-video.mp4
 </p>
 
 - For each flagged medication, the AI suggests a **safer therapeutic alternative** with clinical rationale
-- Powered by Gemma models running on **AMD Instinct MI300X GPUs** via Fireworks AI
+- Cloud synthesis served by **Fireworks AI** (model id configurable via `REPORT_MODEL`; the public demo runs `deepseek-v4-pro`)
 - Structured JSON output with drug-to-replacement mapping
 - Examples: Ibuprofen → Acetaminophen (avoids nephrotoxicity), Metoclopramide → Omeprazole (avoids Parkinson's worsening)
 
@@ -105,7 +135,7 @@ https://github.com/user-attachments/assets/demo-video.mp4
 - **Streaming real-time** clinical letter generation ("Dear Colleague" format)
 - Prioritizes the most dangerous issues first
 - Provides specific dosage adjustments and monitoring recommendations
-- Shows **hardware routing badge** confirming AMD MI300X GPU path
+- Shows a **routing badge** indicating whether the answer came from the offline engine (0 tokens) or the cloud model
 
 ### 📄 PDF Export
 - One-click export to clean, print-ready clinical audit document
@@ -152,9 +182,9 @@ https://github.com/user-attachments/assets/demo-video.mp4
 │           ┌───────────────┼───────────────┐                 │
 │           ▼               ▼               ▼                 │
 │    ┌─────────────┐ ┌─────────────┐ ┌──────────────┐       │
-│    │ MedGemma 4B │ │ TxGemma 2B  │ │ Gemma 4 31B  │       │
-│    │ (Local vLLM)│ │ (Local vLLM)│ │(Fireworks AI) │       │
-│    │ AMD MI300X  │ │ AMD MI300X  │ │ AMD MI300X    │       │
+│    │ MedGemma 4B │ │ TxGemma 2B  │ │  Cloud LLM   │       │
+│    │ (GPU path,  │ │ (GPU path,  │ │(Fireworks AI)│       │
+│    │  NOT live)  │ │  NOT live)  │ │  ** LIVE **  │       │
 │    └─────────────┘ └─────────────┘ └──────────────┘       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -163,9 +193,9 @@ https://github.com/user-attachments/assets/demo-video.mp4
 
 | Model | Location | Purpose | Fallback |
 |-------|----------|---------|----------|
-| **MedGemma 4B** | Local AMD GPU (vLLM) | Parse unstructured clinical text into structured medication lists | Regex parser |
-| **TxGemma 2B** | Local AMD GPU (vLLM) | Predict novel drug-drug interactions via SMILES molecular strings | Local DDI database |
-| **Gemma 4 31B** | Fireworks AI Cloud (AMD MI300X) | Generate clinical narratives and prescribing alternatives | Template-based scoring |
+| **MedGemma 4B** | GPU path — *not enabled in public demo* | Parse unstructured clinical text | **Regex parser (what actually runs)** |
+| **TxGemma 2B** | GPU path — *not enabled in public demo* | Predict novel DDIs via SMILES | **Curated DDI database (what actually runs)** |
+| **Cloud LLM** (`deepseek-v4-pro`) | Fireworks AI — **live** | Streaming clinical narrative + JSON prescribing alternatives | Rule-based template |
 
 ### Resilient Fallback Design
 
@@ -222,7 +252,9 @@ docker build -t druglens .
 docker run -p 8000:8000 --env-file .env druglens
 ```
 
-### AMD GPU Pod (Hackathon)
+### AMD GPU Pod (code-complete — not exercised in the public demo)
+
+> We ship and syntax-validate this path but had no MI300X access, so it is unbenchmarked. It is included because it is real, reviewable work — not because we ran it.
 
 ```bash
 # On AMD Instinct MI300X pod with ROCm + vLLM
@@ -241,10 +273,10 @@ chmod +x setup_amd_pod.sh
 |-------|-----------|
 | **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Lucide Icons |
 | **Backend** | Python 3.12, FastAPI, Uvicorn, SSE (Server-Sent Events) |
-| **AI Models** | Google Gemma 4 31B, MedGemma 4B, TxGemma 2B |
-| **GPU Runtime** | AMD ROCm, vLLM, AMD Instinct MI300X |
-| **Cloud API** | Fireworks AI (AMD MI300X hosted inference) |
-| **Drug APIs** | RxNorm (NIH), PubChem (SMILES lookup) |
+| **AI Model (live)** | `deepseek-v4-pro` via Fireworks AI (configurable) |
+| **GPU path (code-complete, not live)** | AMD ROCm + vLLM for MedGemma 4B / TxGemma 2B |
+| **Cloud API** | Fireworks AI |
+| **Drug APIs (GPU path only)** | PubChem SMILES lookup — used by the TxGemma predictor; not active in the CPU demo |
 | **Containerization** | Docker, Docker Compose |
 | **CI/CD** | GitHub Actions |
 
@@ -257,9 +289,8 @@ chmod +x setup_amd_pod.sh
 | File | Contents | Count |
 |------|----------|-------|
 | `data/beers_criteria.json` | AGS Beers Criteria 2023 PIMs | 50+ rules |
-| `data/stopp_start.json` | STOPP/START v3 (2023) criteria | 40 STOPP + 20 START |
-| `data/drug_interactions.json` | Curated drug-drug interaction pairs | 200+ pairs |
-| `data/demo_cases.json` | Pre-built test cases (Mild/Moderate/Severe) | 3 cases |
+| `data/stopp_start.json` | STOPP/START v3 (2023) criteria | 38 STOPP + 20 START |
+| `data/drug_interactions.json` | Curated drug-drug interaction pairs | 102 pairs |
 
 ### Clinical Evidence Sources
 
@@ -279,12 +310,10 @@ DrugLens/
 │   ├── config.py             # Environment configuration
 │   ├── drug_interactions.py  # DDI, Beers, STOPP/START matching engine
 │   ├── router.py             # LLM routing with Gemma-priority fallbacks
-│   └── schemas.py            # Pydantic request/response models
 ├── data/
 │   ├── beers_criteria.json   # AGS Beers 2023 rules
 │   ├── stopp_start.json      # STOPP/START v3 rules
 │   ├── drug_interactions.json # 200+ DDI pairs
-│   └── demo_cases.json       # Pre-built test cases
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx           # Main React application
@@ -322,17 +351,17 @@ python scripts/smoke_check.py
 
 ## 🏆 AMD Developer Hackathon: Act II
 
-**Track:** Unicorn Track  
+**Track:** Track 3 — Unicorn Track  
 **Team:** team-3103
 
 ### Why DrugLens Wins
 
 | Criterion | How We Excel |
 |-----------|-------------|
-| **Creativity/Originality** | Only submission addressing geriatric polypharmacy — a $3.5B clinical problem |
-| **Product/Market Potential** | 55M+ elderly Americans on 5+ drugs. Direct integration path into EHR systems |
+| **Creativity/Originality** | Geriatric polypharmacy is an underserved CDS niche; we found no comparable open-source auditor combining Beers + STOPP/START + DDI with LLM triage and true combination-rule logic |
+| **Product/Market Potential** | ~23M Americans 65+ take 5+ medications (40% of the 58M aged 65+). Direct integration path into EHR systems |
 | **Completeness** | Full-stack working prototype: deterministic rules + AI synthesis + export |
-| **Use of AMD Platform** | Triple Gemma model pipeline on AMD Instinct MI300X via Fireworks AI + local vLLM |
+| **Use of AMD Platform** | Cloud inference via Fireworks AI. A GPU path for MedGemma 4B + TxGemma 2B (vLLM + ROCm) is shipped and containerised (`docker-compose --profile gpu`, `setup_amd_pod.sh`) but is **not enabled in the CPU-hosted public demo** — see *Honest Scope* below |
 
 ---
 

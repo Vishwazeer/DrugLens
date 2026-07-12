@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,6 +15,8 @@ from pydantic import BaseModel
 
 from src import config
 from src.analyzer import CONDITION_OPTIONS, analyze_medications, get_demo_cases
+from src.ddi_predictor import predict_unknown_interactions_cloud
+from src.drug_interactions import _load_json, load_interaction_db
 from src.router import (
     ROUTE_CLOUD,
     decide_route,
@@ -80,7 +83,10 @@ async def analyze(request: AnalyzeRequest):
         route = decide_route(result.get("risk_level", "MINIMAL"))
         result["routing"] = {
             "route": route,
-            "engine": "AMD Instinct™ MI300X via Fireworks AI" if route == ROUTE_CLOUD else "Edge Engine (Offline)",
+            # Report only what we can actually demonstrate: that the answer came
+            # from the cloud model on Fireworks, or from the offline engine.
+            # (We do not claim specific silicon we cannot verify from here.)
+            "engine": "Cloud LLM via Fireworks AI" if route == ROUTE_CLOUD else "Edge Engine (Offline)",
             "model": _CLOUD_MODEL_LABEL if route == ROUTE_CLOUD else None,
         }
         return result
@@ -175,6 +181,82 @@ async def demo_cases():
 @app.get("/api/conditions")
 async def conditions():
     return CONDITION_OPTIONS
+
+@app.post("/api/analyze/predict-novel")
+async def predict_novel(request: AnalyzeRequest):
+    """Predict interactions for drug pairs that are NOT in the curated database.
+
+    This is the "novel drug blindspot" that lookup-table checkers miss: they can
+    only flag pairs someone already indexed. Every unindexed pair here is
+    evaluated by the cloud model, grounded in PubChem molecular structures.
+
+    Kept as its own endpoint so /api/analyze stays fast (~1s).
+    """
+    try:
+        result = analyze_medications(
+            medication_text=request.medication_text,
+            patient_age=request.patient_age,
+            patient_conditions=request.patient_conditions or [],
+            patient_egfr=request.patient_egfr,
+            use_llm_parser=request.use_llm_parser,
+            use_txgemma=False,
+            use_gemma4=False,
+        )
+        drug_names = [
+            m.get("name") or m.get("raw", "") for m in result.get("parsed_medications", [])
+        ]
+        known = result.get("interactions", [])
+        predictions = predict_unknown_interactions_cloud(drug_names, known)
+
+        total_pairs = len(drug_names) * (len(drug_names) - 1) // 2
+        return {
+            "predictions": predictions,
+            "pairs_in_database": len(known),
+            "pairs_evaluated": max(total_pairs - len(known), 0),
+            "model": _CLOUD_MODEL_LABEL,
+        }
+    except Exception as e:
+        logger.error(f"Error predicting novel interactions: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.get("/api/engine-stats")
+async def engine_stats():
+    """Real, live counts read from the loaded rulesets — never hardcoded.
+
+    The UI renders these, so the numbers it shows can always be checked
+    against data/*.json. Latency is genuinely measured here, not asserted.
+    """
+    beers = _load_json("beers_criteria.json", [])
+    ss = _load_json("stopp_start.json", {"stopp": [], "start": []})
+    ddi = load_interaction_db()
+
+    # Measure the deterministic engine on a representative regimen.
+    sample = "warfarin 5mg daily\namiodarone 200mg daily\nlorazepam 1mg bid\noxycodone 5mg q6h"
+    timings: list[float] = []
+    for _ in range(5):
+        t0 = time.perf_counter()
+        analyze_medications(
+            medication_text=sample,
+            patient_age=85,
+            patient_conditions=["Atrial Fibrillation"],
+            use_llm_parser=False,
+            use_txgemma=False,
+            use_gemma4=False,
+        )
+        timings.append((time.perf_counter() - t0) * 1000)
+    timings.sort()
+
+    return {
+        "ddi_pairs": len(ddi),
+        "beers_rules": len(beers),
+        "stopp_rules": len(ss.get("stopp", [])),
+        "start_rules": len(ss.get("start", [])),
+        "stopp_start_total": len(ss.get("stopp", [])) + len(ss.get("start", [])),
+        "conditions": len(CONDITION_OPTIONS),
+        "median_engine_latency_ms": round(timings[len(timings) // 2], 1),
+    }
+
 
 @app.get("/api/health")
 async def health_check():

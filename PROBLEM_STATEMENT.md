@@ -51,34 +51,50 @@ Traditional checkers only know about pre-indexed interaction pairs. If a patient
 
 ## 5. The DrugLens Solution
 
-DrugLens solves these problems by wrapping a fast, digitized geriatric rules engine (Beers 2023, STOPP/START v3) inside a multi-tier Gemma AI pipeline running on AMD hardware:
+DrugLens wraps a fast, digitized geriatric rules engine (Beers 2023, STOPP/START v3) in a two-tier architecture: **deterministic rules always run first**, and an LLM is invoked **only when the case warrants it**.
 
 ```
 ┌─────────────────────────────────┐
-│        Free-Text Input          │  <-- Doctor inputs unstructured clinical notes
+│        Free-Text Input          │  <-- Unstructured clinical notes
 └────────────────┬────────────────┘
                  │
-                 ▼  [Model 1: MedGemma 4B]
+                 ▼  [Clinical Text Parser]
 ┌─────────────────────────────────┐
-│     Structured Medication       │  <-- Extracts name, dose, frequency
+│     Structured Medication       │  <-- Extracts name, dose, frequency, route
+│     + Patient Context           │      and age / eGFR / conditions from the note
 └────────────────┬────────────────┘
                  │
-                 ▼  [Deterministic Ruleset Engine]
+                 ▼  [Deterministic Ruleset Engine — always runs, ~3 ms]
 ┌─────────────────────────────────┐
-│  - 100+ Core DDIs Checked        │  <-- Low-latency, high-precision audits
-│  - Beers Criteria Violations    │  <-- Flags age-inappropriate drugs
-│  - STOPP/START Recommendations  │  <-- Worsening conditions / missing therapies
+│  - 102 Curated DDIs Checked     │  <-- Combination-aware (AND-logic), not naive
+│  - Beers Criteria Violations    │  <-- Age- and eGFR-gated
+│  - STOPP/START Recommendations  │  <-- Conditions treated / therapies missing
 └────────────────┬────────────────┘
                  │
-                 ▼  [Model 2: TxGemma 2B] (For unknown pairs)
+                 ├──► LOW / MINIMAL risk ──► answered here. **0 LLM tokens spent.**
+                 │
+                 ▼  [Token-Efficient Router] — escalate only MODERATE / HIGH
 ┌─────────────────────────────────┐
-│     Novel DDI Predictions       │  <-- Evaluates chemical structures (SMILES)
+│  Novel DDI Prediction           │  <-- Un-indexed pairs evaluated by the cloud
+│  (un-indexed pairs + SMILES)    │      model, grounded in PubChem structures
 └────────────────┬────────────────┘
                  │
-                 ▼  [Model 3: Cloud report model (Fireworks)]
+                 ▼  [Cloud model via Fireworks AI]
 ┌─────────────────────────────────┐
-│    Interactive Clinical Report  │  <-- Synthesizes summary + deprescribing suggestions
+│    Interactive Clinical Report  │  <-- Streaming narrative + deprescribing
+│                                 │      suggestions + safer alternatives
 └─────────────────────────────────┘
 ```
 
-By decoupling deterministic rules matching from predictive AI, DrugLens eliminates alert fatigue (by ranking risk dynamically) and covers the "novel drug blindspot" via molecular structure analysis—all while keeping local execution fast and private on AMD local nodes.
+### How each failure mode is addressed
+
+| EHR failure (§4) | How DrugLens answers it |
+|---|---|
+| **I. Alert fatigue** | Combination rules use **AND-semantics**: "opioid + benzodiazepine" fires only when *both* are present, never on one drug alone. Findings are severity-ranked and risk-scored. Our mild demo case produces **zero alerts** — the system stays quiet when nothing is wrong. |
+| **II. No age-specific rules** | 61 AGS Beers 2023 rules + 38 STOPP + 20 START, gated on **age, comorbidities, and eGFR**. Drop eGFR to 25 and the renal rules activate live. |
+| **III. Unstructured notes** | The parser reads free-text prescriptions *and* lifts patient age, eGFR, conditions and allergies straight out of the note. |
+| **IV. Novel-drug blindspot** | Every drug pair with **no database entry** is sent to the cloud model, grounded in each drug's **PubChem SMILES structure**, to surface interactions no lookup table contains. |
+
+By decoupling deterministic rule matching from predictive AI, DrugLens attacks alert fatigue at its root (precision, not volume) while still covering the novel-drug blindspot — and it spends **zero GPU tokens** on the low-risk majority of patients.
+
+> **Scope note.** The public demo runs on a CPU-only host. The cloud model is served by Fireworks AI. A GPU path for MedGemma 4B / TxGemma 2B (vLLM + ROCm on AMD Instinct) is shipped and reviewable in this repo but is **not enabled in the public demo** — see *Honest Scope* in the README.
