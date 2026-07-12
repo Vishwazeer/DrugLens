@@ -38,6 +38,32 @@ def _fireworks_client() -> OpenAI:
     return OpenAI(base_url=config.FIREWORKS_BASE_URL, api_key=config.FIREWORKS_API_KEY)
 
 
+# Gemma is preferred when the account serves it; config.REPORT_MODEL is the
+# fallback. Accounts without Gemma would otherwise re-probe (and 404 on) the
+# Gemma ids on every request, so the first model that works is remembered and
+# tried first from then on.
+_GEMMA_PREFERRED = [
+    "accounts/fireworks/models/gemma-4-31b-it",
+    "accounts/fireworks/models/gemma-2-9b-it",
+]
+_working_model: str | None = None
+
+
+def _candidate_models() -> list[str]:
+    """Ordered models to try: the known-good one first, then Gemma, then fallback."""
+    ordered = ([_working_model] if _working_model else []) + [
+        *_GEMMA_PREFERRED,
+        config.REPORT_MODEL,
+    ]
+    seen: set[str] = set()
+    return [m for m in ordered if m and not (m in seen or seen.add(m))]
+
+
+def _remember_working_model(model_id: str) -> None:
+    global _working_model
+    _working_model = model_id
+
+
 def _build_stream_prompt(analysis_result: dict) -> tuple[str, str]:
     """Build system + user prompts for the streaming LLM call."""
     pi = analysis_result.get("patient_info", {})
@@ -106,21 +132,12 @@ async def stream_clinical_narrative(
 
     system_prompt, user_prompt = _build_stream_prompt(analysis_result)
 
-    models_to_try = [
-        "accounts/fireworks/models/gemma-4-31b-it",
-        "accounts/fireworks/models/gemma-2-9b-it",
-        config.REPORT_MODEL
-    ]
-    # Remove duplicates preserving order
-    seen = set()
-    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
-
     client = _fireworks_client()
     stream = None
     first_chunk = None
     last_error = None
 
-    for model_id in models_to_try:
+    for model_id in _candidate_models():
         try:
             logger.info(f"Attempting clinical narrative stream with model: {model_id}")
             stream = client.chat.completions.create(
@@ -136,6 +153,7 @@ async def stream_clinical_narrative(
             # Try to fetch the first chunk to ensure the model exists/is active
             first_chunk = next(stream)
             logger.info(f"Successfully started stream using model: {model_id}")
+            _remember_working_model(model_id)
             break
         except Exception as e:
             logger.warning(f"Model {model_id} failed to stream: {e}")
@@ -221,19 +239,10 @@ def generate_alternatives(
         "Generate safer prescribing alternatives for each flagged drug."
     )
 
-    models_to_try = [
-        "accounts/fireworks/models/gemma-4-31b-it",
-        "accounts/fireworks/models/gemma-2-9b-it",
-        config.REPORT_MODEL
-    ]
-    # Remove duplicates preserving order
-    seen = set()
-    models_to_try = [x for x in models_to_try if not (x in seen or seen.add(x))]
-
     client = _fireworks_client()
     last_error = None
 
-    for model_id in models_to_try:
+    for model_id in _candidate_models():
         try:
             logger.info(f"Attempting alternatives generation with model: {model_id}")
             extra: dict = {"response_format": {"type": "json_object"}} if config.REPORT_JSON_MODE else {}
@@ -259,9 +268,11 @@ def generate_alternatives(
                 )
                 if isinstance(alts, list):
                     logger.info(f"Successfully generated alternatives using model: {model_id}")
+                    _remember_working_model(model_id)
                     return alts
             elif isinstance(parsed, list):
                 logger.info(f"Successfully generated alternatives using model: {model_id}")
+                _remember_working_model(model_id)
                 return parsed
         except Exception as e:
             logger.warning(f"Model {model_id} failed to generate alternatives: {e}")
