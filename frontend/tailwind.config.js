@@ -6,16 +6,14 @@ export default {
   ],
   theme: {
     extend: {
-      animation: {
-        grain: "grain 8s steps(10) infinite",
+      colors: {
+        'mint-bg': '#EAF5F5',
+        'teal-dark': '#0D7F82',
+        'teal-light': '#F4F9F9',
       },
-      keyframes: {
-        grain: {
-          "0%, 100%": { transform: "translate(0, 0)" },
-          "10%": { transform: "translate(-2%, -5%)" },
-          "50%": { transform: "translate(4%, 4%)" },
-        },
-      },
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+      }
     },
   },
   plugins: [],
