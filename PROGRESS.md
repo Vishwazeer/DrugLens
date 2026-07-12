@@ -1,7 +1,6 @@
 # DrugLens — Implementation Progress
 
 Tracking file for the hardening & demo-win plan (23 verified defects + enhancements).
-Full plan: `C:\Users\navni\.claude\plans\i-need-you-to-sunny-spark.md`
 
 Legend: ✅ done · 🔄 in progress · ⏳ pending · ⚠️ blocked/needs input
 
