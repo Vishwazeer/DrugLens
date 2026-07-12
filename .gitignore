@@ -19,4 +19,18 @@ __pycache__/
 
 # Browser verification artifacts
 .playwright-mcp/
-*.png
+
+# Generated temp files
+voiceover_parts/
+voiceover_full.mp3
+generate_voiceover.py
+make_slides.py
+Demo.mp4
+Demo_with_voiceover.mp4
+*.wav
+
+# Node modules (frontend has its own)
+node_modules/
+
+# Cover image (generated)
+druglens_cover_*.png
