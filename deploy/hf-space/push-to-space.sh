@@ -15,7 +15,7 @@
 #
 # Usage
 #   bash deploy/hf-space/push-to-space.sh <hf-username>/<space-name>
-#   e.g. bash deploy/hf-space/push-to-space.sh navnit/druglens
+#   e.g. bash deploy/hf-space/push-to-space.sh vishwazeer/druglens
 
 set -euo pipefail
 
