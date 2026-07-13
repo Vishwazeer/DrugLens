@@ -321,7 +321,3 @@ A full walkthrough is in the [Demo Video](https://drive.google.com/file/d/1ld5lx
 **Source Available — All Rights Reserved.** See [LICENSE](LICENSE) for full terms.
 
 The source code is publicly visible for viewing and educational purposes. Any use in personal, commercial, or academic projects requires explicit written permission from the author.
-
-To request permission: navnitamrutharaj1234@gmail.com
-
-**Author:** Navnit Amrutharaj
