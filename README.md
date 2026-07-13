@@ -302,7 +302,7 @@ Full production hardening and the deployment runbook are documented in [DEPLOYME
 
 </div>
 
-A full walkthrough is in [`Demo video.mp4`](./Demo%20video.mp4).
+A full walkthrough is in the [Demo Video](https://drive.google.com/file/d/1ld5lxCGfChBpa6zPNzkhn6Hm7w7WhrIw/view?usp=sharing).
 
 ---
 
